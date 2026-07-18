@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gravity Duel — a real-time gravity-combat duel</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22%23ff8833%22/><circle cx=%2250%22 cy=%2250%22 r=%2240%22 fill=%22none%22 stroke=%22%2366ccff%22 stroke-width=%224%22/></svg>" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <h1>Gravity Duel</h1>
+      <p class="tagline">Your shots curve under real gravity. Aim around the well, or through it.</p>
+    </header>
+
+    <section id="view-home" class="view panel">
+      <h2>Play online</h2>
+      <button type="button" class="primary" data-create-room>Create room</button>
+      <div class="join-row">
+        <input type="text" maxlength="4" placeholder="CODE" data-join-code-input autocomplete="off" />
+        <button type="button" class="secondary" data-join-room>Join room</button>
+      </div>
+      <p class="error-text" data-home-error></p>
+    </section>
+
+    <section id="view-lobby" class="view panel" hidden>
+      <h2>Room <strong data-room-code></strong></h2>
+      <ul class="player-list" data-player-list></ul>
+      <button type="button" class="primary" data-ready-btn>Ready</button>
+      <p class="status-text" data-lobby-status></p>
+    </section>
+
+    <section id="view-play" class="view" hidden>
+      <canvas id="scene"></canvas>
+      <div id="hud" data-connection="disconnected" data-self-id="" data-self-kills="0" data-opp-kills="0"
+           data-self-invulnerable="false" data-match-status="" data-winner="" data-room-code-hud="">
+        <div class="score-display" data-score-display>You: 0 — Opponent: 0</div>
+        <div class="controls-hint">Mouse to aim · W to thrust · Click to fire</div>
+        <div class="match-over-banner" data-match-over-banner hidden>
+          <p data-match-over-text></p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
