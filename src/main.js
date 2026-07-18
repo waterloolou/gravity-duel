@@ -71,9 +71,25 @@ net.on(MSG.LOBBY_STATE, (msg) => {
     .join("");
 });
 
+let countdownTimer = null;
 net.on(MSG.MATCH_STARTING, (msg) => {
   roomPhase = "starting";
-  lobbyStatusEl.textContent = `Starting in ${Math.ceil(msg.countdownMs / 1000)}...`;
+  // Actually tick the displayed number down (3... 2... 1...) instead of
+  // setting static text once and leaving it frozen for the full countdown
+  // -- a static "Starting in 3..." for a full 3 seconds before an abrupt
+  // jump to the match reads as stuck/broken, not as a running countdown.
+  if (countdownTimer) clearInterval(countdownTimer);
+  let secondsLeft = Math.ceil(msg.countdownMs / 1000);
+  lobbyStatusEl.textContent = `Starting in ${secondsLeft}…`;
+  countdownTimer = setInterval(() => {
+    secondsLeft -= 1;
+    if (secondsLeft > 0) {
+      lobbyStatusEl.textContent = `Starting in ${secondsLeft}…`;
+    } else {
+      clearInterval(countdownTimer);
+      countdownTimer = null;
+    }
+  }, 1000);
 });
 
 net.on(MSG.MATCH_EVENT, (msg) => {

@@ -143,7 +143,10 @@ button.secondary {
 }
 
 .status-text {
-  color: var(--muted);
+  color: var(--accent);
+  font-size: 1.3rem;
+  font-weight: 700;
+  min-height: 1.6em;
 }
 
 .player-list {
