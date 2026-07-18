@@ -46,7 +46,7 @@ body {
 }
 
 #app {
-  max-width: 640px;
+  max-width: 960px;
   margin: 0 auto;
   padding: 24px 16px 64px;
 }
@@ -73,6 +73,13 @@ body {
   border-radius: 16px;
   padding: 24px;
   text-align: center;
+  /* Keep the home/lobby panels compact even though #app was widened to
+     give the 3D play view (#view-play, full-width of #app) more room --
+     a short button/code-input/player-list stretched to 960px would look
+     sparse and unbalanced. */
+  max-width: 480px;
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .panel h2 {

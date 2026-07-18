@@ -51,7 +51,13 @@ export function createRenderer(canvas) {
   );
   opponentMesh.rotation.x = Math.PI / 2; // cone's local +Y becomes local +Z, matching facingFromYawPitch's convention
   scene.add(opponentMesh);
-  const opponentInvulnMaterial = new THREE.MeshBasicMaterial({ color: 0x66ccff, transparent: true, opacity: 0.35 });
+  // Solid, distinct bright white -- not a translucent blend of the ship's
+  // own color, which pixel-sampling confirmed blends toward near-invisible
+  // against both the orange well and the dark background (0.35 opacity of
+  // the ship's own blue reads as a muddy tan over the well, a dim navy over
+  // black). A respawn's ~2s invulnerability window happens after every
+  // death, so this needs to read clearly, not just technically differ.
+  const opponentInvulnMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
   const opponentSolidMaterial = opponentMesh.material;
 
   // Projectiles: one mesh per live projectile id, created/disposed as they

@@ -77,7 +77,7 @@ net.on(MSG.MATCH_STARTING, (msg) => {
 });
 
 net.on(MSG.MATCH_EVENT, (msg) => {
-  if (msg.type === "match_over") {
+  if (msg.event === "match_over") {
     roomPhase = "over";
     winner = msg.winnerId;
     winReason = msg.reason ?? "won";

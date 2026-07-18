@@ -87,7 +87,7 @@ check("a lethal hit respawns the victim at their fixed spawn point with a fresh 
   assert.deepEqual(next.ships.p1.pos, originalSpawn, "victim should respawn at their exact fixed spawn point");
   assert.equal(next.ships.p1.invulnerableUntil, now + P.RESPAWN_INVULN);
   assert.equal(next.ships.p2.kills, 1, "killer should be credited");
-  assert.ok(events.some((e) => e.type === "hit" && e.victimId === "p1" && e.killerId === "p2"));
+  assert.ok(events.some((e) => e.event === "hit" && e.victimId === "p1" && e.killerId === "p2"));
 });
 
 check("a hit projectile is removed from play", () => {
@@ -111,7 +111,7 @@ check("simultaneous mutual kills: both ships die and both killers are credited i
   assert.equal(next.ships.p2.kills, 1, "p2 should be credited for killing p1");
   assert.deepEqual(next.ships.p1.pos, M.SPAWN_POSITIONS.p1, "p1 should have respawned");
   assert.deepEqual(next.ships.p2.pos, M.SPAWN_POSITIONS.p2, "p2 should have respawned");
-  assert.equal(events.filter((e) => e.type === "hit").length, 2, "two independent hit events, no order-dependent suppression");
+  assert.equal(events.filter((e) => e.event === "hit").length, 2, "two independent hit events, no order-dependent suppression");
 });
 
 check("two simultaneous hits on the same ship consume both projectiles but grant only one kill", () => {
@@ -131,7 +131,7 @@ check("flying into the well is lethal, same as being shot", () => {
   state.ships.p1 = { ...state.ships.p1, pos: { x: P.WELL_RADIUS + P.SHIP_RADIUS - 1, y: 0, z: 0 } };
   const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
   assert.deepEqual(next.ships.p1.pos, M.SPAWN_POSITIONS.p1, "p1 should have respawned after flying into the well");
-  assert.ok(events.some((e) => e.type === "well_death" && e.victimId === "p1"));
+  assert.ok(events.some((e) => e.event === "well_death" && e.victimId === "p1"));
 });
 
 check("win is declared at exactly KILLS_TO_WIN, not one before", () => {
@@ -152,7 +152,7 @@ check("win is declared at exactly KILLS_TO_WIN, not one before", () => {
   const { state: afterSecond, events } = M.stepMatch(afterFirst, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 4);
   assert.equal(afterSecond.ships.p2.kills, P.KILLS_TO_WIN);
   assert.equal(afterSecond.winner, "p2");
-  assert.ok(events.some((e) => e.type === "match_over" && e.winnerId === "p2"));
+  assert.ok(events.some((e) => e.event === "match_over" && e.winnerId === "p2"));
 });
 
 check("stepMatch is a no-op once a winner is set", () => {

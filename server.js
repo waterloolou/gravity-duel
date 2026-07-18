@@ -61,7 +61,15 @@ const rooms = new Map(); // code -> { room, matchState, inputs, tickTimer, start
 const sockets = new Map(); // socketId -> { ws, roomCode, playerId }
 
 function send(ws, type, payload = {}) {
-  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type, ...payload }));
+  // `type` spread LAST so the envelope's own type always wins, even if a
+  // caller's payload happens to carry its own `type`-named field (exactly
+  // what broke MATCH_EVENT dispatch: match.js's event objects use `type` for
+  // their own hit/well_death/match_over sub-type, which used to silently
+  // clobber the "match_event" envelope type when spread first). Renaming
+  // that field to `event` (see match.js) fixes the one instance found; this
+  // ordering makes the whole class of bug structurally impossible going
+  // forward, not just this occurrence of it.
+  if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ ...payload, type }));
 }
 
 function broadcastToRoom(entry, type, payload = {}) {
@@ -189,7 +197,7 @@ function handleDisconnectSocket(socketId) {
     if (room.phase === "over" && entry.tickTimer) {
       clearInterval(entry.tickTimer);
       entry.tickTimer = null;
-      broadcastToRoom(entry, MSG.MATCH_EVENT, { type: "match_over", winnerId: room.winner, reason: room.winReason });
+      broadcastToRoom(entry, MSG.MATCH_EVENT, { event: "match_over", winnerId: room.winner, reason: room.winReason });
     } else if (room.phase === "waiting") {
       broadcastLobbyState(sock.roomCode);
     }

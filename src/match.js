@@ -102,7 +102,7 @@ export function stepMatch(state, inputs, dt, now) {
 
     if (P.sweptSphereHit(prevShipPos[id], ship.pos, P.SHIP_RADIUS, P.WELL_POS, P.WELL_POS, P.WELL_RADIUS)) {
       deadShipIds.add(id);
-      events.push({ type: "well_death", victimId: id });
+      events.push({ event: "well_death", victimId: id });
       diedThisTick = true;
     }
 
@@ -113,7 +113,7 @@ export function stepMatch(state, inputs, dt, now) {
       if (!diedThisTick) {
         // ...but only the first cause of death this tick grants a kill.
         deadShipIds.add(id);
-        events.push({ type: "hit", victimId: id, killerId: proj.ownerId });
+        events.push({ event: "hit", victimId: id, killerId: proj.ownerId });
         diedThisTick = true;
       }
     }
@@ -132,7 +132,7 @@ export function stepMatch(state, inputs, dt, now) {
     resolvedShips[id] = deadShipIds.has(id) ? respawn(movedShips[id], now) : movedShips[id];
   }
   for (const e of events) {
-    if (e.type === "hit" && resolvedShips[e.killerId]) {
+    if (e.event === "hit" && resolvedShips[e.killerId]) {
       resolvedShips[e.killerId] = { ...resolvedShips[e.killerId], kills: resolvedShips[e.killerId].kills + 1 };
     }
   }
@@ -150,7 +150,7 @@ export function stepMatch(state, inputs, dt, now) {
   }
   if (winner && !state.winner) {
     events.push({
-      type: "match_over",
+      event: "match_over",
       winnerId: winner,
       finalScore: { p1: resolvedShips.p1.kills, p2: resolvedShips.p2.kills },
     });
