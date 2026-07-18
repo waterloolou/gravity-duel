@@ -95,6 +95,15 @@ function beginMatch(code) {
   const entry = rooms.get(code);
   if (!entry) return;
   entry.room = R.beginMatch(entry.room);
+  // A player can disconnect during the 3s starting countdown (reverting the
+  // room to "waiting") and a NEW pair can ready up before the original
+  // setTimeout fires -- R.beginMatch is correctly a no-op when phase isn't
+  // "starting", but without this check the rest of this function would run
+  // anyway, force-starting an illegitimate match or, on the stale timer's
+  // later firing, wiping an already-in-progress match back to a fresh 0-0
+  // state. Confirmed reachable via a real disconnect-during-countdown case,
+  // not just a hypothetical race.
+  if (entry.room.phase !== "active") return;
   entry.matchState = M.createMatchState();
   entry.inputs = { p1: neutralInput(entry.matchState.ships.p1), p2: neutralInput(entry.matchState.ships.p2) };
   startTickLoop(code);
@@ -123,6 +132,11 @@ function serializeMatchState(state, now) {
 function startTickLoop(code) {
   const entry = rooms.get(code);
   if (!entry) return;
+  // Defensive: never let two tick loops run concurrently against the same
+  // shared matchState/room (would double physics speed and duplicate
+  // broadcasts). Shouldn't be reachable given the beginMatch() guard above,
+  // but costs nothing to make impossible outright.
+  if (entry.tickTimer) clearInterval(entry.tickTimer);
   const stepMs = P.TICK_DT * 1000;
   let last = Date.now();
   let acc = 0;
@@ -157,9 +171,18 @@ function handleDisconnectSocket(socketId) {
   if (!entry) return;
 
   const { room, deleted } = R.handleDisconnect(entry.room, socketId, Date.now() / 1000);
+  // A pending "starting" countdown timer must be cancelled on ANY disconnect
+  // that reverts the room out of "starting", not just when the room is
+  // deleted outright -- otherwise a disconnect-during-countdown leaves a
+  // stale setTimeout that can force-start a match later against whichever
+  // players happen to be in the room by then (see beginMatch()'s guard for
+  // the second half of this fix).
+  if (entry.startTimer) {
+    clearTimeout(entry.startTimer);
+    entry.startTimer = null;
+  }
   if (deleted) {
     if (entry.tickTimer) clearInterval(entry.tickTimer);
-    if (entry.startTimer) clearTimeout(entry.startTimer);
     rooms.delete(sock.roomCode);
   } else {
     entry.room = room;
@@ -179,6 +202,15 @@ function handleMessage(socketId, msg) {
 
   switch (msg.type) {
     case MSG.CREATE_ROOM: {
+      // Without this guard, a socket already seated in room A could create/
+      // join a second room, silently orphaning room A (its cleanup would
+      // thereafter target the socket's new room instead) -- and, for JOIN,
+      // a host could even join their own just-created code, permanently
+      // occupying both seats and locking out a real second player.
+      if (sock.roomCode) {
+        send(sock.ws, MSG.ERROR, { code: ERROR_CODES.ALREADY_IN_ROOM, message: "You're already in a room." });
+        return;
+      }
       const code = R.generateRoomCode((c) => rooms.has(c));
       if (!code) {
         send(sock.ws, MSG.ERROR, { code: ERROR_CODES.SERVER_FULL, message: "Could not allocate a room code, try again." });
@@ -193,6 +225,10 @@ function handleMessage(socketId, msg) {
       return;
     }
     case MSG.JOIN_ROOM: {
+      if (sock.roomCode) {
+        send(sock.ws, MSG.ERROR, { code: ERROR_CODES.ALREADY_IN_ROOM, message: "You're already in a room." });
+        return;
+      }
       const code = String(msg.code || "").toUpperCase();
       const entry = rooms.get(code);
       if (!entry) {
@@ -226,9 +262,20 @@ function handleMessage(socketId, msg) {
       const entry = rooms.get(sock.roomCode);
       if (!entry || !sock.playerId || entry.room.phase !== "active") return;
       const maxPitch = 1.4835; // ~85 degrees, matches the client's own pointer-lock clamp
+      // `Number(x) || 0` only guards against falsy results (NaN, 0, "") --
+      // it does NOT catch Infinity, which valid JSON can produce (e.g. a
+      // literal like 1e400 overflows silently). Math.sin/cos(Infinity) is
+      // NaN, which then poisons a ship's integrated position permanently
+      // (NaN propagates through every subsequent tick and can never be hit
+      // by a swept-sphere test again) -- confirmed exploitable via a single
+      // malformed PLAYER_INPUT message. Number.isFinite closes that gap;
+      // aimPitch is included too for defense-in-depth even though the
+      // clamp below happens to already neutralize an infinite input.
+      const rawYaw = Number(msg.aimYaw);
+      const rawPitch = Number(msg.aimPitch);
       entry.inputs[sock.playerId] = {
-        aimYaw: Number(msg.aimYaw) || 0,
-        aimPitch: Math.max(-maxPitch, Math.min(maxPitch, Number(msg.aimPitch) || 0)),
+        aimYaw: Number.isFinite(rawYaw) ? rawYaw : 0,
+        aimPitch: Math.max(-maxPitch, Math.min(maxPitch, Number.isFinite(rawPitch) ? rawPitch : 0)),
         thrusting: !!msg.thrusting,
         firing: !!msg.firing,
       };

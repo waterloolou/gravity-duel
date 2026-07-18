@@ -57,7 +57,9 @@ check("a projectile can never hit its own owner, even if perfectly co-located", 
   // Force a projectile owned by p1 to start exactly at p1's own ship position.
   state.projectiles.push({ id: 99, ownerId: "p1", pos: { ...state.ships.p1.pos }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 });
   const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
-  assert.equal(next.ships.p1.alive !== false, true, "p1 should not have been killed by its own projectile");
+  // invulnerableUntil only ever changes via respawn() on the death path, so
+  // it staying at its default (0) is definitive proof p1 was never killed.
+  assert.equal(next.ships.p1.invulnerableUntil, 0, "p1 should not have been killed by its own projectile");
   assert.equal(next.ships.p1.kills, 0);
 });
 

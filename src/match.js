@@ -24,7 +24,6 @@ export function createShip(id) {
     vel: { x: 0, y: 0, z: 0 },
     yaw,
     pitch,
-    alive: true,
     kills: 0,
     invulnerableUntil: 0,
     lastFireTime: -Infinity,
@@ -66,10 +65,6 @@ export function stepMatch(state, inputs, dt, now) {
   for (const id of PLAYER_IDS) {
     const ship = state.ships[id];
     prevShipPos[id] = ship.pos;
-    if (!ship.alive) {
-      movedShips[id] = ship;
-      continue;
-    }
     const input = inputs[id] ?? { aimYaw: ship.yaw, aimPitch: ship.pitch, thrusting: false, firing: false };
     movedShips[id] = { ...ship, ...P.integrateShip(ship, dt, input) };
   }
@@ -102,7 +97,7 @@ export function stepMatch(state, inputs, dt, now) {
 
   for (const id of PLAYER_IDS) {
     const ship = movedShips[id];
-    if (!ship.alive || now < ship.invulnerableUntil) continue;
+    if (now < ship.invulnerableUntil) continue;
     let diedThisTick = false;
 
     if (P.sweptSphereHit(prevShipPos[id], ship.pos, P.SHIP_RADIUS, P.WELL_POS, P.WELL_POS, P.WELL_RADIUS)) {
