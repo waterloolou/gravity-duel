@@ -205,7 +205,16 @@ button.secondary {
   opacity: 0.75;
 }
 
-.match-over-banner {
+/* :not([hidden]), not just .match-over-banner -- a bare class selector here
+   has equal specificity to (and, being an author rule, wins over) the
+   browser's default `[hidden] { display: none }`, so `display: flex` was
+   unconditionally overriding `hidden` and this full-coverage,
+   pointer-events:auto div sat on top of the canvas from the moment a match
+   started, intercepting every click and mousemove -- silently blocking both
+   aiming and firing, and nearly invisible since it's a translucent black
+   overlay atop an already-dark scene. A live user hit this directly
+   ("can't shoot, can't steer"). */
+.match-over-banner:not([hidden]) {
   position: absolute;
   inset: 0;
   display: flex;
