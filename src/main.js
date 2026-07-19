@@ -45,9 +45,22 @@ document.querySelector("[data-join-room]").addEventListener("click", () => {
 });
 
 readyBtn.addEventListener("click", () => {
+  // Guard client-side against the exact bug that caused P1 to get
+  // permanently stuck: clicking Ready before a second player has joined.
+  // The server only accepts SET_READY once the room has two players (see
+  // room.js's setReady, gated to the "full-not-ready" phase) and silently
+  // no-ops otherwise -- but this button was unconditionally disabling
+  // itself on click regardless, so an early click left the button
+  // disabled forever with no way to actually register as ready once a
+  // second player did show up. Confirmed reproducible and now fixed by
+  // simply not allowing the click to do anything (or disable the button)
+  // until there are really two players to ready up.
+  if (playersInRoom < 2) return;
   readyBtn.disabled = true;
   net.send(MSG.SET_READY, { ready: true });
 });
+
+let playersInRoom = 1; // creating/joining always seats the local player immediately
 
 function enterLobby(code, playerNumber) {
   selfId = playerNumber;
@@ -55,6 +68,13 @@ function enterLobby(code, playerNumber) {
   roomCodeEl.textContent = code;
   hud.dataset.roomCodeHud = code;
   showView("lobby");
+  // Disabled synchronously here too, not just from the LOBBY_STATE handler
+  // below -- closes the brief window between entering the lobby and that
+  // first broadcast arriving, during which a real player could otherwise
+  // still land the exact stuck-forever click this whole guard exists to
+  // prevent.
+  readyBtn.disabled = true;
+  lobbyStatusEl.textContent = "Waiting for a second player…";
   updateHud(hud, { connection: "connected", selfId, roomPhase });
 }
 
@@ -66,9 +86,22 @@ net.on(MSG.ERROR, (msg) => {
 });
 
 net.on(MSG.LOBBY_STATE, (msg) => {
+  playersInRoom = msg.players.length;
   playerListEl.innerHTML = msg.players
     .map((p) => `<li data-player-row="${p.playerNumber}">${p.playerNumber}${p.playerNumber === selfId ? " (you)" : ""} — ${p.ready ? "ready" : "not ready"}</li>`)
     .join("");
+
+  const self = msg.players.find((p) => p.playerNumber === selfId);
+  if (playersInRoom < 2) {
+    readyBtn.disabled = true;
+    lobbyStatusEl.textContent = "Waiting for a second player…";
+  } else if (self?.ready) {
+    readyBtn.disabled = true;
+    lobbyStatusEl.textContent = "";
+  } else {
+    readyBtn.disabled = false;
+    lobbyStatusEl.textContent = "";
+  }
 });
 
 let countdownTimer = null;
