@@ -127,12 +127,18 @@ function serializeMatchState(state, now) {
       pitch: s.pitch,
       kills: s.kills,
       invulnerable: now < s.invulnerableUntil,
+      thrusting: !!s.thrusting,
     };
   }
   return {
     tick: state.tick,
     ships,
-    projectiles: state.projectiles.map((p) => ({ id: p.id, ownerId: p.ownerId, pos: [p.pos.x, p.pos.y, p.pos.z] })),
+    projectiles: state.projectiles.map((p) => ({
+      id: p.id,
+      ownerId: p.ownerId,
+      pos: [p.pos.x, p.pos.y, p.pos.z],
+      vel: [p.vel.x, p.vel.y, p.vel.z],
+    })),
     winner: state.winner,
   };
 }

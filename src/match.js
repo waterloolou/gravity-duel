@@ -27,6 +27,7 @@ export function createShip(id) {
     kills: 0,
     invulnerableUntil: 0,
     lastFireTime: -Infinity,
+    thrusting: false,
   };
 }
 
@@ -50,6 +51,7 @@ function respawn(ship, now) {
     yaw,
     pitch,
     invulnerableUntil: now + P.RESPAWN_INVULN,
+    thrusting: false,
   };
 }
 
@@ -66,7 +68,10 @@ export function stepMatch(state, inputs, dt, now) {
     const ship = state.ships[id];
     prevShipPos[id] = ship.pos;
     const input = inputs[id] ?? { aimYaw: ship.yaw, aimPitch: ship.pitch, thrusting: false, firing: false };
-    movedShips[id] = { ...ship, ...P.integrateShip(ship, dt, input) };
+    // `thrusting` is carried through purely for client rendering (opponent
+    // engine glow) -- it has no effect on physics beyond what integrateShip
+    // already applied above.
+    movedShips[id] = { ...ship, ...P.integrateShip(ship, dt, input), thrusting: !!input.thrusting };
   }
 
   // 2. Fire (after movement, from each ship's new position/orientation).

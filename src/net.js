@@ -36,6 +36,7 @@ function interpolateState(a, b, t) {
       pitch: lerp(sa.pitch, sb.pitch, t),
       kills: sb.kills, // scores snap immediately, never interpolate
       invulnerable: sb.invulnerable,
+      thrusting: sb.thrusting,
     };
   }
   // Projectiles are numerous and transient; rendering the latest snapshot's
