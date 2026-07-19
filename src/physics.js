@@ -5,7 +5,7 @@
 export const ARENA_RADIUS = 500;
 export const WELL_POS = { x: 0, y: 0, z: 0 };
 export const WELL_RADIUS = 40;
-export const G_MU = 1_000_000; // gravitational parameter (G*M), tuned for feel not realism
+export const G_MU = 2_000_000; // gravitational parameter (G*M), tuned for feel not realism
 
 export const SHIP_RADIUS = 8;
 export const SHIP_THRUST_ACCEL = 300;
@@ -37,8 +37,8 @@ export const SPAWN_RADIUS = 350;
 // landed close to 350, a freshly (re)spawned ship could momentarily overlap
 // a moon.
 export const MOON_SPECS = [
-  { name: "moonA", orbitRadius: 190, period: 34, radius: 16, mu: 160_000, phase: Math.PI / 2, inclination: 0.32 },
-  { name: "moonB", orbitRadius: 300, period: 68, radius: 24, mu: 300_000, phase: Math.PI * 1.35, inclination: -0.46 },
+  { name: "moonA", orbitRadius: 190, period: 34, radius: 16, mu: 320_000, phase: Math.PI / 2, inclination: 0.32 },
+  { name: "moonB", orbitRadius: 300, period: 68, radius: 24, mu: 600_000, phase: Math.PI * 1.35, inclination: -0.46 },
 ];
 
 // --- vec3 helpers -----------------------------------------------------

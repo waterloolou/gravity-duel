@@ -13,17 +13,13 @@ function approx(actual, expected, tolerance, msg) {
 }
 
 check("gravityAcceleration matches inverse-square law at known distances", () => {
-  const table = [
-    [500, 4],
-    [300, 11.111],
-    [150, 44.444],
-    [80, 156.25],
-    [48, 434.028],
-    [42, 566.893],
-  ];
-  for (const [r, expected] of table) {
+  // Expected values are derived from G_MU itself (not hardcoded numbers) --
+  // this test's real intent is verifying the 1/r^2 relationship holds at
+  // several distances, not pinning a specific tuning value that would then
+  // need editing here every time gravity strength is tuned for feel.
+  for (const r of [500, 300, 150, 80, 48, 42]) {
     const accel = P.gravityAcceleration({ x: r, y: 0, z: 0 });
-    approx(P.vLen(accel), expected, 0.01, `a(${r})`);
+    approx(P.vLen(accel), P.G_MU / (r * r), 0.01, `a(${r})`);
   }
 });
 
