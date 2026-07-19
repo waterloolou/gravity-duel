@@ -134,6 +134,26 @@ check("flying into the well is lethal, same as being shot", () => {
   assert.ok(events.some((e) => e.event === "well_death" && e.victimId === "p1"));
 });
 
+check("flying into a moon is lethal, just like the well, but credits no one", () => {
+  let state = M.createMatchState();
+  // state.tick is 0 for a freshly created match, so stepMatch will compute
+  // simTime=0 internally -- moonPosition at t=0 is exactly reproducible here.
+  const moonPos = P.moonPosition(P.MOON_SPECS[0], 0);
+  state.ships.p1 = { ...state.ships.p1, pos: { ...moonPos } };
+  const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
+  assert.deepEqual(next.ships.p1.pos, M.SPAWN_POSITIONS.p1, "p1 should have respawned after crashing into a moon");
+  assert.ok(events.some((e) => e.event === "moon_death" && e.victimId === "p1"));
+  assert.equal(next.ships.p2.kills, 0, "a moon death, like a well death, credits no one");
+});
+
+check("a projectile flying into a moon is silently consumed, just like the well", () => {
+  let state = M.createMatchState();
+  const moonPos = P.moonPosition(P.MOON_SPECS[1], 0);
+  state.projectiles.push({ id: 7, ownerId: "p1", pos: { ...moonPos }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 });
+  const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
+  assert.equal(next.projectiles.find((p) => p.id === 7), undefined, "the projectile should have been consumed by the moon");
+});
+
 check("win is declared at exactly KILLS_TO_WIN, not one before", () => {
   let state = M.createMatchState();
   state.ships.p2 = { ...state.ships.p2, kills: P.KILLS_TO_WIN - 2 };

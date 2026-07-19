@@ -60,6 +60,9 @@ function buildKillFeedMessage(ev) {
   if (ev.event === "well_death") {
     return isSelfVictim ? "You were pulled into the well." : "Opponent was pulled into the well.";
   }
+  if (ev.event === "moon_death") {
+    return isSelfVictim ? "You crashed into a moon." : "Opponent crashed into a moon.";
+  }
   if (isSelfVictim) return "You were eliminated.";
   if (ev.killerId === selfId) return "You eliminated your opponent!";
   return "Opponent scored a kill.";
@@ -194,10 +197,11 @@ net.on(MSG.MATCH_STARTING, (msg) => {
 
 let latestSelf = null;
 let latestOpponent = null;
+let latestTick = 0;
 let gameRenderer = null;
 
 net.on(MSG.MATCH_EVENT, (msg) => {
-  if (msg.event === "hit" || msg.event === "well_death") {
+  if (msg.event === "hit" || msg.event === "well_death" || msg.event === "moon_death") {
     const isSelfVictim = msg.victimId === selfId;
     audioSystem.explosion();
     pushKillFeed(buildKillFeedMessage(msg));
@@ -277,7 +281,7 @@ function startGameLoop() {
   // (setAim/setInput) with read access to the authoritative self-ship state,
   // so an external script can drive a closed-loop maneuver (e.g. home in on
   // a known target position) without needing DOM/canvas pixel inspection.
-  window.__testHooks.debugState = () => ({ self: latestSelf, opponent: latestOpponent, inputState: input.getState() });
+  window.__testHooks.debugState = () => ({ self: latestSelf, opponent: latestOpponent, tick: latestTick, inputState: input.getState() });
 
   function loop() {
     requestAnimationFrame(loop);
@@ -315,12 +319,14 @@ function startGameLoop() {
       const opponentId = selfId === "p1" ? "p2" : "p1";
       const opp = snap.ships[opponentId];
       latestOpponent = opp;
+      latestTick = snap.tick;
       if (self) {
-        renderer.updateCamera(self);
-        renderer.updateTrajectoryPreview(self, inputState.thrusting);
+        renderer.updateCamera(self, inputState.thirdPerson, inputState.thrusting);
+        renderer.updateTrajectoryPreview(self, inputState.thrusting, snap.tick);
       }
       if (opp) renderer.updateOpponent(opp);
       renderer.updateProjectiles(snap.projectiles, selfId, () => audioSystem.fire());
+      renderer.updateMoons(snap.tick);
       updateHud(hud, { connection: "connected", selfId, matchState: snap, roomPhase, winner });
     }
 

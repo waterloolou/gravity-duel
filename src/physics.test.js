@@ -120,6 +120,28 @@ check("sweptSphereHit correctly reports no collision when spheres never come clo
   assert.equal(hit, false);
 });
 
+check("moonPosition stays at a constant distance from the well across its orbit", () => {
+  for (const spec of P.MOON_SPECS) {
+    for (const t of [0, spec.period * 0.25, spec.period * 0.6, spec.period * 3.7]) {
+      const pos = P.moonPosition(spec, t);
+      approx(P.vLen(P.vSub(pos, P.WELL_POS)), spec.orbitRadius, 1e-6, `${spec.name} at t=${t}`);
+    }
+  }
+});
+
+check("totalGravityAt sums the well's pull with every moon's pull independently", () => {
+  const pos = { x: 60, y: 15, z: -20 }; // arbitrary point clear of the well and both moons at this t
+  const t = 12.3;
+  let expected = P.gravityAcceleration(pos, P.WELL_POS, P.G_MU);
+  for (const spec of P.MOON_SPECS) {
+    expected = P.vAdd(expected, P.gravityAcceleration(pos, P.moonPosition(spec, t), spec.mu));
+  }
+  const actual = P.totalGravityAt(pos, t);
+  approx(actual.x, expected.x, 1e-9, "x component");
+  approx(actual.y, expected.y, 1e-9, "y component");
+  approx(actual.z, expected.z, 1e-9, "z component");
+});
+
 check("gravity measurably curves a passing projectile toward the well, verified against a zero-gravity control", () => {
   const start = { x: -300, y: 80, z: 0 };
   const vel = { x: 400, y: 0, z: 0 };

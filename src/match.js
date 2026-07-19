@@ -61,6 +61,14 @@ function respawn(ship, now) {
 export function stepMatch(state, inputs, dt, now) {
   if (state.winner) return { state, events: [] };
 
+  // Simulation time (used only for moon orbital position/gravity) is
+  // tick-count-based, not wall-clock -- deliberately distinct from `now`,
+  // which stays wall-clock for cooldowns/invulnerability (see those fields'
+  // own comments). A moon's orbit should only advance while the sim is
+  // actually ticking.
+  const simTime = state.tick * dt;
+  const prevSimTime = simTime - dt;
+
   // 1. Integrate ships.
   const prevShipPos = {};
   const movedShips = {};
@@ -71,7 +79,7 @@ export function stepMatch(state, inputs, dt, now) {
     // `thrusting` is carried through purely for client rendering (opponent
     // engine glow) -- it has no effect on physics beyond what integrateShip
     // already applied above.
-    movedShips[id] = { ...ship, ...P.integrateShip(ship, dt, input), thrusting: !!input.thrusting };
+    movedShips[id] = { ...ship, ...P.integrateShip(ship, dt, input, simTime), thrusting: !!input.thrusting };
   }
 
   // 2. Fire (after movement, from each ship's new position/orientation).
@@ -91,9 +99,18 @@ export function stepMatch(state, inputs, dt, now) {
   //    they've actually existed for any time).
   const projStates = [...state.projectiles, ...spawnedProjectiles].map((p) => {
     const prevPos = p.prevPos ?? p.pos;
-    const stepped = P.integrateProjectile(p, dt);
+    const stepped = P.integrateProjectile(p, dt, simTime);
     return { ...p, prevPos, pos: stepped.pos, vel: stepped.vel };
   });
+
+  // Each moon's position at both ends of this tick's motion interval --
+  // sweptSphereHit already supports a moving target B, so a moving hazard
+  // costs nothing extra here beyond computing its two endpoint positions.
+  const moonSweeps = P.MOON_SPECS.map((spec) => ({
+    spec,
+    prevPos: P.moonPosition(spec, prevSimTime),
+    pos: P.moonPosition(spec, simTime),
+  }));
 
   // 4. Detect (frozen snapshot: reads prevShipPos/movedShips/projStates only, never mutates).
   const deadShipIds = new Set();
@@ -109,6 +126,16 @@ export function stepMatch(state, inputs, dt, now) {
       deadShipIds.add(id);
       events.push({ event: "well_death", victimId: id });
       diedThisTick = true;
+    }
+
+    if (!diedThisTick) {
+      for (const { spec, prevPos: moonPrevPos, pos: moonPos } of moonSweeps) {
+        if (!P.sweptSphereHit(prevShipPos[id], ship.pos, P.SHIP_RADIUS, moonPrevPos, moonPos, spec.radius)) continue;
+        deadShipIds.add(id);
+        events.push({ event: "moon_death", victimId: id });
+        diedThisTick = true;
+        break;
+      }
     }
 
     for (const proj of projStates) {
@@ -128,6 +155,13 @@ export function stepMatch(state, inputs, dt, now) {
     if (hitProjectileIds.has(proj.id)) continue;
     if (P.sweptSphereHit(proj.prevPos, proj.pos, P.PROJECTILE_RADIUS, P.WELL_POS, P.WELL_POS, P.WELL_RADIUS)) {
       hitProjectileIds.add(proj.id);
+      continue;
+    }
+    for (const { spec, prevPos: moonPrevPos, pos: moonPos } of moonSweeps) {
+      if (P.sweptSphereHit(proj.prevPos, proj.pos, P.PROJECTILE_RADIUS, moonPrevPos, moonPos, spec.radius)) {
+        hitProjectileIds.add(proj.id);
+        break;
+      }
     }
   }
 

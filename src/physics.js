@@ -25,6 +25,22 @@ export const RESPAWN_INVULN = 2.0; // seconds
 export const KILLS_TO_WIN = 5;
 export const SPAWN_RADIUS = 350;
 
+// Two moons on fixed circular orbits around the well, each an additional
+// gravity source (and collision hazard) -- not just decoration. Orbits are
+// kinematic (a pure function of simTime), not mutually N-body-simulated:
+// real enough to matter tactically (slingshot around a moon, or get pulled
+// off course by one) without the instability of actually integrating
+// multiple massive bodies against each other. orbitRadius is deliberately
+// kept clear of SPAWN_RADIUS (350) by a comfortable margin on both sides --
+// a moon's orbit crosses the well-ship axis exactly twice per revolution
+// (at inclination-tilt angle 0 and pi), and if that crossing point ever
+// landed close to 350, a freshly (re)spawned ship could momentarily overlap
+// a moon.
+export const MOON_SPECS = [
+  { name: "moonA", orbitRadius: 190, period: 34, radius: 16, mu: 160_000, phase: Math.PI / 2, inclination: 0.32 },
+  { name: "moonB", orbitRadius: 300, period: 68, radius: 24, mu: 300_000, phase: Math.PI * 1.35, inclination: -0.46 },
+];
+
 // --- vec3 helpers -----------------------------------------------------
 
 export function vAdd(a, b) {
@@ -74,11 +90,47 @@ export function gravityAcceleration(pos, wellPos = WELL_POS, mu = G_MU) {
   return vScale(vNormalize(toWell), mu / (r * r));
 }
 
-// One semi-implicit Euler step for a ship: gravity + optional thrust along
-// the aimed facing + linear drag, then boundary-sphere bounce.
-export function integrateShip(ship, dt, input) {
+// A moon's position on its fixed circular orbit at a given simulation time
+// (seconds of simulated tick-time, NOT wall-clock -- see stepMatch/render.js
+// for why: orbital motion should only advance while the sim is actually
+// ticking, unlike the wall-clock-based cooldown/invulnerability timers
+// elsewhere in this file). The orbit lies in a plane tilted by `inclination`
+// off the well's XZ plane around the X axis, so each moon crosses the well's
+// own XZ plane (and the ship spawn axis) at exactly two points per orbit.
+export function moonPosition(spec, simTime) {
+  const angle = spec.phase + (simTime / spec.period) * 2 * Math.PI;
+  const xFlat = spec.orbitRadius * Math.cos(angle);
+  const zFlat = spec.orbitRadius * Math.sin(angle);
+  return {
+    x: xFlat,
+    y: zFlat * Math.sin(spec.inclination),
+    z: zFlat * Math.cos(spec.inclination),
+  };
+}
+
+// The full "realistic gravity" field at a point: the well's pull plus every
+// moon's pull, summed -- real inverse-square superposition, not just a
+// single dominant source. Moons themselves are NOT gravitationally
+// simulated (they move on fixed rails via moonPosition) -- only ships and
+// projectiles feel the combined field.
+export function totalGravityAt(pos, simTime) {
+  let accel = gravityAcceleration(pos, WELL_POS, G_MU);
+  for (const spec of MOON_SPECS) {
+    accel = vAdd(accel, gravityAcceleration(pos, moonPosition(spec, simTime), spec.mu));
+  }
+  return accel;
+}
+
+// One semi-implicit Euler step for a ship: gravity (well + moons) + optional
+// thrust along the aimed facing + linear drag, then boundary-sphere bounce.
+// `simTime` defaults to 0 so every existing direct call in physics.test.js
+// (which predates moons) keeps testing exactly what it always tested --
+// at simTime=0 both moons sit far enough from every coordinate those tests
+// use that their pull is negligible next to the well's, verified by hand
+// when MOON_SPECS was chosen.
+export function integrateShip(ship, dt, input, simTime = 0) {
   const facing = facingFromYawPitch(input.aimYaw, input.aimPitch);
-  const gravity = gravityAcceleration(ship.pos);
+  const gravity = totalGravityAt(ship.pos, simTime);
   const thrust = input.thrusting ? vScale(facing, SHIP_THRUST_ACCEL) : { x: 0, y: 0, z: 0 };
   const drag = vScale(ship.vel, -SHIP_DRAG);
   const accel = vAdd(vAdd(gravity, thrust), drag);
@@ -97,10 +149,11 @@ export function integrateShip(ship, dt, input) {
   return { pos: newPos, vel: newVel, yaw: input.aimYaw, pitch: input.aimPitch };
 }
 
-// One semi-implicit Euler step for a projectile: gravity only, no thrust,
-// no boundary bounce (projectiles despawn on exiting the arena instead).
-export function integrateProjectile(proj, dt) {
-  const gravity = gravityAcceleration(proj.pos);
+// One semi-implicit Euler step for a projectile: gravity (well + moons)
+// only, no thrust, no boundary bounce (projectiles despawn on exiting the
+// arena instead). See integrateShip for why simTime defaults to 0.
+export function integrateProjectile(proj, dt, simTime = 0) {
+  const gravity = totalGravityAt(proj.pos, simTime);
   const newVel = clampSpeed(vAdd(proj.vel, vScale(gravity, dt)), PROJECTILE_MAX_SPEED);
   const newPos = vAdd(proj.pos, vScale(newVel, dt));
   return { pos: newPos, vel: newVel };

@@ -17,6 +17,7 @@ export function createInputController(canvas) {
   let aimPitch = 0;
   let thrusting = false;
   let firing = false;
+  let thirdPerson = false;
 
   canvas.addEventListener("click", () => {
     if (document.pointerLockElement !== canvas) canvas.requestPointerLock();
@@ -40,6 +41,10 @@ export function createInputController(canvas) {
 
   document.addEventListener("keydown", (e) => {
     if (e.code === "KeyW") thrusting = true;
+    // e.repeat guards against the OS's held-key auto-repeat re-firing this
+    // every ~30ms -- without it, holding C would flicker between camera
+    // modes many times per second instead of toggling once per press.
+    if (e.code === "KeyC" && !e.repeat) thirdPerson = !thirdPerson;
   });
   document.addEventListener("keyup", (e) => {
     if (e.code === "KeyW") thrusting = false;
@@ -60,10 +65,13 @@ export function createInputController(canvas) {
       if (t !== undefined) thrusting = t;
       if (f !== undefined) firing = f;
     },
+    setCameraMode(isThirdPerson) {
+      thirdPerson = !!isThirdPerson;
+    },
   };
 
   function getState() {
-    return { aimYaw, aimPitch, thrusting, firing };
+    return { aimYaw, aimPitch, thrusting, firing, thirdPerson };
   }
 
   function setInitialAim(yaw, pitch) {

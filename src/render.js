@@ -67,6 +67,37 @@ function makeNebulaTexture() {
   });
 }
 
+// A cratered-moon look baked entirely into the texture (base albedo blotches
+// + a soft directional shade band + craters) rather than real lighting --
+// there is no light source anywhere in this scene (see the well's own
+// MeshBasicMaterial note), so a moon reads as a moon through surface detail
+// alone, the same trick used for the nebula backdrop.
+function makeMoonTexture(baseColor, craterColor) {
+  return makeCanvasTexture(256, (ctx, size) => {
+    ctx.fillStyle = baseColor;
+    ctx.fillRect(0, 0, size, size);
+
+    const shade = ctx.createLinearGradient(0, 0, size, 0);
+    shade.addColorStop(0, "rgba(255,255,255,0.22)");
+    shade.addColorStop(0.5, "rgba(255,255,255,0)");
+    shade.addColorStop(1, "rgba(0,0,0,0.5)");
+    ctx.fillStyle = shade;
+    ctx.fillRect(0, 0, size, size);
+
+    ctx.fillStyle = craterColor;
+    for (let i = 0; i < 30; i++) {
+      const x = Math.random() * size;
+      const y = Math.random() * size;
+      const r = 4 + Math.random() * 16;
+      ctx.globalAlpha = 0.2 + Math.random() * 0.35;
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  });
+}
+
 function makeStarfield(count, minR, maxR) {
   const positions = new Float32Array(count * 3);
   const colors = new Float32Array(count * 3);
@@ -137,6 +168,59 @@ function buildShipGeometries() {
   tail.rotateX(Math.PI / 2);
   const engine = new THREE.SphereGeometry(P.SHIP_RADIUS * 0.42, 10, 10);
   return { body, tail, engine, wingL: makeWingGeometry(1), wingR: makeWingGeometry(-1) };
+}
+
+const MOON_TEXTURES = [
+  ["#9c9aa8", "#5c5a68"],
+  ["#b06a4a", "#6e3f2c"],
+];
+
+function buildMoonMeshes() {
+  return P.MOON_SPECS.map((spec, i) => {
+    const [base, crater] = MOON_TEXTURES[i % MOON_TEXTURES.length];
+    const mesh = new THREE.Mesh(
+      new THREE.SphereGeometry(spec.radius, 24, 24),
+      new THREE.MeshBasicMaterial({ map: makeMoonTexture(base, crater) })
+    );
+    return mesh;
+  });
+}
+
+// A "blaster bolt" built from three parts sharing the same lookAt-safe
+// long-axis-on-Z convention as the ship: a small hot-white core (reads
+// clearly and blooms hard regardless of team color), a larger translucent
+// additive glow shell in the owner's color, and a tapering streak trailing
+// behind for a sense of motion -- replacing the original bare colored
+// cylinder.
+function buildBoltGeometries() {
+  const core = new THREE.CapsuleGeometry(P.PROJECTILE_RADIUS * 0.9, P.PROJECTILE_RADIUS * 3.2, 4, 8);
+  core.rotateX(Math.PI / 2);
+  const glow = new THREE.CapsuleGeometry(P.PROJECTILE_RADIUS * 1.8, P.PROJECTILE_RADIUS * 4.2, 4, 8);
+  glow.rotateX(Math.PI / 2);
+  const streak = new THREE.ConeGeometry(P.PROJECTILE_RADIUS * 1.1, P.PROJECTILE_RADIUS * 9, 6, 1, true);
+  streak.rotateX(Math.PI / 2);
+  return { core, glow, streak };
+}
+
+function createBoltMaterials(color) {
+  return {
+    core: new THREE.MeshBasicMaterial({ color: 0xffffff }),
+    glow: new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.45, blending: THREE.AdditiveBlending, depthWrite: false }),
+    streak: new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, blending: THREE.AdditiveBlending, depthWrite: false }),
+  };
+}
+
+function createBoltVisual(boltGeo, mats) {
+  const group = new THREE.Group();
+  const core = new THREE.Mesh(boltGeo.core, mats.core);
+  const glow = new THREE.Mesh(boltGeo.glow, mats.glow);
+  const streak = new THREE.Mesh(boltGeo.streak, mats.streak);
+  // +Z is the "tail" under this module's lookAt convention (see the
+  // body/tail geometry notes in buildShipGeometries) -- the streak trails
+  // behind the direction of travel, not in front of it.
+  streak.position.z = P.PROJECTILE_RADIUS * 6;
+  group.add(core, glow, streak);
+  return group;
 }
 
 function createShipModel(geo, hullColor, engineColor) {
@@ -269,18 +353,39 @@ export function createRenderer(canvas) {
   );
   scene.add(arenaMesh);
 
-  // First-person camera means the local player's own ship is never rendered
-  // (it's always exactly at the camera) -- only the opponent needs a model.
+  // Two moons on fixed orbits (see physics.js's MOON_SPECS) -- real gravity
+  // sources and collision hazards, not just scenery, so their on-screen
+  // position must track the same simTime the server's physics uses (driven
+  // via updateMoons(tick) each frame, not an independent client-side clock).
+  const moonMeshes = buildMoonMeshes();
+  for (const mesh of moonMeshes) scene.add(mesh);
+
+  function updateMoons(tick) {
+    const simTime = (tick ?? 0) * P.TICK_DT;
+    P.MOON_SPECS.forEach((spec, i) => {
+      const pos = P.moonPosition(spec, simTime);
+      moonMeshes[i].position.set(pos.x, pos.y, pos.z);
+      moonMeshes[i].rotation.y += 0.002 * (i + 1); // slow self-spin, purely cosmetic
+    });
+  }
+
+  // Both ships share the same geometry set. The local player's own ship is
+  // only ever visible in third-person mode (in first person it's always
+  // exactly at the camera) -- see updateCamera.
   const shipGeo = buildShipGeometries();
   const opponentShip = createShipModel(shipGeo, OWN_COLOR, 0xffffff);
   scene.add(opponentShip.group);
+  const selfShipModel = createShipModel(shipGeo, OWN_COLOR, 0xffffff);
+  selfShipModel.group.visible = false;
+  scene.add(selfShipModel.group);
 
-  // Projectiles: a short glowing "bolt" (stretched cylinder) oriented along
-  // its own velocity, one mesh per live projectile id, created/disposed as
-  // they appear/vanish. Counts stay small, so no pooling is needed.
-  const projectileGeometry = new THREE.CylinderGeometry(P.PROJECTILE_RADIUS * 0.8, P.PROJECTILE_RADIUS * 0.8, P.PROJECTILE_RADIUS * 7, 6);
-  const ownProjectileMaterial = new THREE.MeshBasicMaterial({ color: OWN_COLOR });
-  const enemyProjectileMaterial = new THREE.MeshBasicMaterial({ color: ENEMY_COLOR });
+  // Projectiles: a glowing "blaster bolt" (core + glow + trailing streak,
+  // see buildBoltGeometries/createBoltVisual) oriented along its own
+  // velocity, one visual per live projectile id, created/disposed as they
+  // appear/vanish. Counts stay small, so no pooling is needed.
+  const boltGeo = buildBoltGeometries();
+  const ownBoltMats = createBoltMaterials(OWN_COLOR);
+  const enemyBoltMats = createBoltMaterials(ENEMY_COLOR);
   const projectileMeshes = new Map();
 
   // Trajectory preview: a dashed ghost line showing where the LOCAL ship
@@ -382,13 +487,39 @@ export function createRenderer(canvas) {
   // --- camera: base transform + additive shake + thrust FOV kick ---------
   const baseCamPos = new THREE.Vector3();
   const baseCamFacing = new THREE.Vector3(0, 0, 1);
+  const CHASE_DISTANCE = 70;
+  const CHASE_HEIGHT = 22;
+  const CHASE_LOOKAHEAD = 40;
   let shakeTrauma = 0;
   let localThrusting = false;
 
-  function updateCamera(selfShip) {
-    baseCamPos.set(selfShip.pos[0], selfShip.pos[1], selfShip.pos[2]);
-    const facing = P.facingFromYawPitch(selfShip.yaw, selfShip.pitch);
-    baseCamFacing.set(facing.x, facing.y, facing.z);
+  // First person: camera sits exactly at the ship (which is why the local
+  // player's own ship is never rendered in that mode -- it's always right
+  // behind the lens). Third person: a chase camera offset up and behind the
+  // ship along its own facing, looking toward a point ahead of it -- and the
+  // self ship model becomes visible so there's actually something to see.
+  function updateCamera(selfShip, thirdPerson, thrusting) {
+    const pos = new THREE.Vector3(selfShip.pos[0], selfShip.pos[1], selfShip.pos[2]);
+    const f = P.facingFromYawPitch(selfShip.yaw, selfShip.pitch);
+    const facing = new THREE.Vector3(f.x, f.y, f.z);
+
+    selfShipModel.group.visible = !!thirdPerson;
+    if (thirdPerson) {
+      selfShipModel.group.position.copy(pos);
+      selfShipModel.group.lookAt(pos.x + f.x, pos.y + f.y, pos.z + f.z);
+      selfShipModel.setInvulnerable(!!selfShip.invulnerable);
+      selfShipModel.setThrusting(!!thrusting);
+
+      const chaseOffset = facing.clone().multiplyScalar(-CHASE_DISTANCE);
+      chaseOffset.y += CHASE_HEIGHT;
+      baseCamPos.copy(pos).add(chaseOffset);
+      const lookTarget = pos.clone().add(facing.clone().multiplyScalar(CHASE_LOOKAHEAD));
+      baseCamFacing.copy(lookTarget).sub(baseCamPos);
+      if (baseCamFacing.lengthSq() < 1e-6) baseCamFacing.set(0, 0, 1);
+    } else {
+      baseCamPos.copy(pos);
+      baseCamFacing.copy(facing);
+    }
   }
 
   function triggerShake(amount) {
@@ -415,41 +546,49 @@ export function createRenderer(canvas) {
     const seen = new Set();
     for (const p of projectiles) {
       seen.add(p.id);
-      let mesh = projectileMeshes.get(p.id);
+      let visual = projectileMeshes.get(p.id);
       const isOwn = p.ownerId === selfId;
-      if (!mesh) {
-        mesh = new THREE.Mesh(projectileGeometry, isOwn ? ownProjectileMaterial : enemyProjectileMaterial);
-        scene.add(mesh);
-        projectileMeshes.set(p.id, mesh);
+      if (!visual) {
+        visual = createBoltVisual(boltGeo, isOwn ? ownBoltMats : enemyBoltMats);
+        scene.add(visual);
+        projectileMeshes.set(p.id, visual);
         const pos = new THREE.Vector3(p.pos[0], p.pos[1], p.pos[2]);
         spawnMuzzleFlash(pos, isOwn ? OWN_COLOR : ENEMY_COLOR);
         onSpawn?.(p);
       }
-      mesh.position.set(p.pos[0], p.pos[1], p.pos[2]);
+      visual.position.set(p.pos[0], p.pos[1], p.pos[2]);
       if (p.vel) {
         const vLenSq = p.vel[0] * p.vel[0] + p.vel[1] * p.vel[1] + p.vel[2] * p.vel[2];
         if (vLenSq > 1e-6) {
-          mesh.lookAt(mesh.position.x + p.vel[0], mesh.position.y + p.vel[1], mesh.position.z + p.vel[2]);
+          visual.lookAt(visual.position.x + p.vel[0], visual.position.y + p.vel[1], visual.position.z + p.vel[2]);
         }
       }
     }
-    for (const [id, mesh] of projectileMeshes) {
+    for (const [id, visual] of projectileMeshes) {
       if (seen.has(id)) continue;
-      scene.remove(mesh);
+      scene.remove(visual);
       projectileMeshes.delete(id);
     }
   }
 
-  function updateTrajectoryPreview(selfShip, thrusting) {
+  function updateTrajectoryPreview(selfShip, thrusting, tick) {
     let sim = {
       pos: { x: selfShip.pos[0], y: selfShip.pos[1], z: selfShip.pos[2] },
       vel: { x: selfShip.vel[0], y: selfShip.vel[1], z: selfShip.vel[2] },
     };
     const input = { aimYaw: selfShip.yaw, aimPitch: selfShip.pitch, thrusting };
+    // Advances simTime forward across the preview window (not a frozen
+    // snapshot) so the moons' pull is accounted for at the position they'll
+    // actually be in by the time the projected path gets there -- over the
+    // ~4s preview window a moon can swing a real number of degrees along its
+    // orbit, so freezing it at the current instant would visibly diverge
+    // from what actually happens once real time catches up.
+    let simTime = (tick ?? 0) * P.TICK_DT;
     const points = [new THREE.Vector3(sim.pos.x, sim.pos.y, sim.pos.z)];
     for (let i = 0; i < TRAJECTORY_PREVIEW_TICKS; i++) {
-      const stepped = P.integrateShip(sim, P.TICK_DT, input);
+      const stepped = P.integrateShip(sim, P.TICK_DT, input, simTime);
       sim = { pos: stepped.pos, vel: stepped.vel };
+      simTime += P.TICK_DT;
       points.push(new THREE.Vector3(sim.pos.x, sim.pos.y, sim.pos.z));
     }
     trajectoryGeometry.setFromPoints(points);
@@ -513,6 +652,7 @@ export function createRenderer(canvas) {
     updateOpponent,
     updateProjectiles,
     updateTrajectoryPreview,
+    updateMoons,
     spawnExplosion,
     triggerShake,
     setLocalThrust,
