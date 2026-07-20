@@ -65,4 +65,37 @@ check("resolveShipStats mixes any ship with any weapon independently", () => {
   assert.equal(stats.projectileLaunchSpeed, Loadouts.WEAPONS.railgun.projectileLaunchSpeed);
 });
 
+check("omitting upgradeLevels entirely (every pre-Phase-4 call site) is numerically identical to all-zero levels", () => {
+  const withNone = Loadouts.resolveShipStats("juggernaut", "railgun");
+  const withZeros = Loadouts.resolveShipStats("juggernaut", "railgun", { thrust: 0, heat: 0, fireRate: 0, projSpeed: 0 });
+  assert.deepEqual(withNone, withZeros);
+});
+
+check("upgradeCost follows the quadratic ramp: 50, 200, 450, 800, 1250 for levels 0-4", () => {
+  assert.deepEqual([0, 1, 2, 3, 4].map(Loadouts.upgradeCost), [50, 200, 450, 800, 1250]);
+});
+
+check("thrust/heat/projSpeed upgrades grow their stat; fireRate upgrades shrink fireCooldown (i.e. fire faster)", () => {
+  const base = Loadouts.resolveShipStats("interceptor", "blaster");
+  const upgraded = Loadouts.resolveShipStats("interceptor", "blaster", { thrust: 3, heat: 3, fireRate: 3, projSpeed: 3 });
+  assert.ok(upgraded.thrustAccel > base.thrustAccel);
+  assert.ok(upgraded.maxHeat > base.maxHeat);
+  assert.ok(upgraded.projectileLaunchSpeed > base.projectileLaunchSpeed);
+  assert.ok(upgraded.fireCooldown < base.fireCooldown, "higher fireRate level should mean a SMALLER cooldown");
+});
+
+check("a maxed-out stat (level 5) is exactly +/-10% off base, and levels beyond max don't over-apply", () => {
+  const base = Loadouts.resolveShipStats("interceptor", "blaster");
+  const maxed = Loadouts.resolveShipStats("interceptor", "blaster", { thrust: 5 });
+  const overMaxed = Loadouts.resolveShipStats("interceptor", "blaster", { thrust: 99 });
+  assert.ok(Math.abs(maxed.thrustAccel - base.thrustAccel * 1.1) < 1e-9);
+  assert.deepEqual(overMaxed, maxed, "a level beyond maxLevel should clamp, not keep compounding");
+});
+
+check("heat upgrades scale overheatClearHeat by the same factor as maxHeat, preserving the ~30% ratio", () => {
+  const stats = Loadouts.resolveShipStats("wraith", "blaster", { heat: 5 });
+  const ratio = stats.overheatClearHeat / stats.maxHeat;
+  assert.ok(Math.abs(ratio - Loadouts.SHIPS.wraith.overheatClearHeat / Loadouts.SHIPS.wraith.maxHeat) < 1e-9);
+});
+
 console.log(`\n${passed} loadouts.js assertions passed`);

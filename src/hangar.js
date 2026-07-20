@@ -50,13 +50,50 @@ function buildCard(kind, id, def, profile, net, errorEl) {
   return card;
 }
 
+function buildUpgradeRow(stat, tree, profile, net, errorEl) {
+  const level = profile.upgrades[stat] ?? 0;
+  const maxed = level >= tree.maxLevel;
+
+  const row = document.createElement("div");
+  row.className = "upgrade-row";
+
+  let pipsHtml = "";
+  for (let i = 0; i < tree.maxLevel; i++) pipsHtml += `<span class="upgrade-pip${i < level ? " filled" : ""}"></span>`;
+
+  row.innerHTML = `
+    <div class="upgrade-info">
+      <div class="upgrade-name">${tree.label}</div>
+      <div class="upgrade-pips">${pipsHtml}</div>
+    </div>
+  `;
+
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "secondary";
+  if (maxed) {
+    btn.textContent = "Maxed";
+    btn.disabled = true;
+  } else {
+    const cost = Loadouts.upgradeCost(level);
+    btn.textContent = `Level Up — ${cost} credits`;
+    btn.disabled = profile.currency < cost;
+    btn.addEventListener("click", () => {
+      errorEl.textContent = "";
+      net.send(MSG.PURCHASE_UPGRADE, { stat });
+    });
+  }
+  row.appendChild(btn);
+  return row;
+}
+
 // Called whenever the Hangar is shown and whenever a fresh PROFILE_STATE
-// arrives while it's open, so purchases/equips reflect immediately without
-// needing a page reload.
+// arrives while it's open, so purchases/equips/upgrades reflect immediately
+// without needing a page reload.
 export function renderHangar(profile, net) {
   const errorEl = document.querySelector("[data-hangar-error]");
   const shipGrid = document.querySelector("[data-ship-grid]");
   const weaponGrid = document.querySelector("[data-weapon-grid]");
+  const upgradeList = document.querySelector("[data-upgrade-list]");
   if (!profile || !shipGrid || !weaponGrid) return;
 
   shipGrid.innerHTML = "";
@@ -66,5 +103,11 @@ export function renderHangar(profile, net) {
   weaponGrid.innerHTML = "";
   for (const [id, def] of Object.entries(Loadouts.WEAPONS)) {
     weaponGrid.appendChild(buildCard("weapon", id, def, profile, net, errorEl));
+  }
+  if (upgradeList) {
+    upgradeList.innerHTML = "";
+    for (const [stat, tree] of Object.entries(Loadouts.UPGRADE_TREE)) {
+      upgradeList.appendChild(buildUpgradeRow(stat, tree, profile, net, errorEl));
+    }
   }
 }

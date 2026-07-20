@@ -275,6 +275,61 @@ button.secondary {
   align-self: flex-start;
 }
 
+.upgrade-hint {
+  text-align: left;
+  margin: 0 0 12px;
+}
+
+.upgrade-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.upgrade-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.upgrade-info {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.upgrade-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.upgrade-pips {
+  display: flex;
+  gap: 4px;
+}
+
+.upgrade-pip {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  background: transparent;
+}
+
+.upgrade-pip.filled {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.upgrade-row button {
+  flex-shrink: 0;
+}
+
 .player-list {
   list-style: none;
   padding: 0;

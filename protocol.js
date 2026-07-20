@@ -13,6 +13,7 @@ export const MSG = {
   IDENTIFY: "identify",
   PURCHASE_UNLOCK: "purchase_unlock",
   EQUIP_LOADOUT: "equip_loadout",
+  PURCHASE_UPGRADE: "purchase_upgrade",
 
   // Server -> Client
   ROOM_CREATED: "room_created",
@@ -36,6 +37,7 @@ export const ERROR_CODES = {
   ALREADY_UNLOCKED: "ALREADY_UNLOCKED",
   NOT_UNLOCKED: "NOT_UNLOCKED",
   UNKNOWN_LOADOUT_ID: "UNKNOWN_LOADOUT_ID",
+  MAX_LEVEL_REACHED: "MAX_LEVEL_REACHED",
 };
 
 export const MATCH_STARTING_COUNTDOWN_MS = 3000;

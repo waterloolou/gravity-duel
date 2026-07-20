@@ -165,7 +165,7 @@ function resolveLoadoutForSeat(entry, seatId) {
   const seat = entry.room.players[seatId];
   const sock = seat && sockets.get(seat.socketId);
   const profile = sock?.profileId ? ProfileStore.get(sock.profileId) : null;
-  return Loadouts.resolveShipStats(profile?.equippedShip, profile?.equippedWeapon);
+  return Loadouts.resolveShipStats(profile?.equippedShip, profile?.equippedWeapon, profile?.upgrades);
 }
 
 function serializeMatchState(state, now) {
@@ -430,6 +430,17 @@ function handleMessage(socketId, msg) {
       const { profile: next, error } = Profile.setEquipped(ProfileStore.get(sock.profileId), msg.shipId, msg.weaponId);
       if (error) {
         send(sock.ws, MSG.ERROR, { code: ERROR_CODES[error], message: "Couldn't equip that loadout." });
+        return;
+      }
+      ProfileStore.set(sock.profileId, next);
+      send(sock.ws, MSG.PROFILE_STATE, { profile: next });
+      return;
+    }
+    case MSG.PURCHASE_UPGRADE: {
+      if (!sock.profileId) return;
+      const { profile: next, error } = Profile.purchaseUpgrade(ProfileStore.get(sock.profileId), msg.stat);
+      if (error) {
+        send(sock.ws, MSG.ERROR, { code: ERROR_CODES[error], message: "Couldn't purchase that upgrade." });
         return;
       }
       ProfileStore.set(sock.profileId, next);

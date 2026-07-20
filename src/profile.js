@@ -1,12 +1,12 @@
 // Pure player-profile logic: currency balance, ship/weapon unlocks +
-// equipped loadout, and (a later phase) upgrade levels. No I/O --
-// src/profile-store.js owns reading/writing this to disk; this module only
-// knows how to create and mutate a single profile object. Same pure/impure
-// split as room.js/server.js. Unlock/equip mutations are validated against
-// src/loadouts.js's catalog, so a profile can never end up unlocked-but-
-// nonexistent or equipped-but-not-unlocked.
+// equipped loadout, and upgrade levels. No I/O -- src/profile-store.js owns
+// reading/writing this to disk; this module only knows how to create and
+// mutate a single profile object. Same pure/impure split as
+// room.js/server.js. All mutations are validated against src/loadouts.js's
+// catalog, so a profile can never end up unlocked-but-nonexistent,
+// equipped-but-not-unlocked, or upgraded-past-maxLevel.
 
-import { SHIPS, WEAPONS, DEFAULT_SHIP_ID, DEFAULT_WEAPON_ID } from "./loadouts.js";
+import { SHIPS, WEAPONS, DEFAULT_SHIP_ID, DEFAULT_WEAPON_ID, UPGRADE_TREE, upgradeCost } from "./loadouts.js";
 
 export function createDefaultProfile(playerId) {
   const now = Date.now();
@@ -70,6 +70,27 @@ export function setEquipped(profile, shipId, weaponId) {
       ...profile,
       equippedShip: shipId !== undefined ? shipId : profile.equippedShip,
       equippedWeapon: weaponId !== undefined ? weaponId : profile.equippedWeapon,
+    },
+    error: null,
+  };
+}
+
+// Spends currency to raise one upgrade stat by a single level. `stat` is one
+// of UPGRADE_TREE's keys (thrust/heat/fireRate/projSpeed). Cost is read from
+// the CURRENT level (upgradeCost(currentLevel)), so each purchase only ever
+// buys the next level, never lets a client name an arbitrary target level.
+export function purchaseUpgrade(profile, stat) {
+  const tree = UPGRADE_TREE[stat];
+  if (!tree) return { profile, error: "UNKNOWN_LOADOUT_ID" };
+  const currentLevel = profile.upgrades[stat] ?? 0;
+  if (currentLevel >= tree.maxLevel) return { profile, error: "MAX_LEVEL_REACHED" };
+  const cost = upgradeCost(currentLevel);
+  if (profile.currency < cost) return { profile, error: "INSUFFICIENT_CURRENCY" };
+  return {
+    profile: {
+      ...profile,
+      currency: profile.currency - cost,
+      upgrades: { ...profile.upgrades, [stat]: currentLevel + 1 },
     },
     error: null,
   };

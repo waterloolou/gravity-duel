@@ -94,4 +94,49 @@ check("setEquipped applies both slots atomically -- an invalid weapon rejects th
   assert.equal(next.equippedShip, "interceptor", "ship slot should not have changed either");
 });
 
+check("purchaseUpgrade spends currency at the current level's cost and raises the level by one", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 50); // level 0 -> 1 costs exactly 50
+  const { profile: next, error } = Profile.purchaseUpgrade(p, "thrust");
+  assert.equal(error, null);
+  assert.equal(next.currency, 0);
+  assert.equal(next.upgrades.thrust, 1);
+  assert.equal(next.upgrades.heat, 0, "other stats should be untouched");
+});
+
+check("purchaseUpgrade's cost rises with each level (quadratic ramp)", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 50 + 200); // exactly enough for level 0->1 then 1->2
+  ({ profile: p } = Profile.purchaseUpgrade(p, "thrust"));
+  assert.equal(p.currency, 200);
+  ({ profile: p } = Profile.purchaseUpgrade(p, "thrust"));
+  assert.equal(p.currency, 0);
+  assert.equal(p.upgrades.thrust, 2);
+});
+
+check("purchaseUpgrade rejects insufficient currency and leaves the profile unchanged", () => {
+  const p = Profile.createDefaultProfile("abc"); // 0 currency, needs 50
+  const { profile: next, error } = Profile.purchaseUpgrade(p, "heat");
+  assert.equal(error, "INSUFFICIENT_CURRENCY");
+  assert.equal(next, p);
+});
+
+check("purchaseUpgrade rejects going past maxLevel", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 100000);
+  for (let i = 0; i < 5; i++) ({ profile: p } = Profile.purchaseUpgrade(p, "fireRate"));
+  assert.equal(p.upgrades.fireRate, 5);
+  const spentSoFar = p.currency;
+  const { profile: next, error } = Profile.purchaseUpgrade(p, "fireRate");
+  assert.equal(error, "MAX_LEVEL_REACHED");
+  assert.equal(next.currency, spentSoFar, "no currency should be spent on a rejected purchase");
+});
+
+check("purchaseUpgrade rejects an unknown stat name", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 9999);
+  const { error } = Profile.purchaseUpgrade(p, "not-a-real-stat");
+  assert.equal(error, "UNKNOWN_LOADOUT_ID");
+});
+
 console.log(`\n${passed} profile.js assertions passed`);
