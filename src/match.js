@@ -23,11 +23,16 @@ function facingTowardWell(spawnPos) {
   return P.vNormalize(P.vSub(P.WELL_POS, spawnPos));
 }
 
-// `spawnPos` is baked onto the ship itself (not re-derived from `id` later)
-// so respawn() keeps working correctly even if a player disconnects mid-match
-// and the surviving roster no longer matches whatever roster the spawn ring
-// was originally computed from.
-export function createShip(id, spawnPos) {
+// `spawnPos` and `stats` are both baked onto the ship itself (not re-derived
+// from `id`/a loadout lookup later) so respawn() keeps working correctly
+// even if a player disconnects mid-match and the surviving roster no longer
+// matches whatever roster the spawn ring was originally computed from, and
+// so a ship's stats stay fixed for the ship's lifetime even if the owning
+// player changes their loadout mid-match (takes effect next match, not
+// retroactively). `stats` defaults to physics.js's DEFAULT_SHIP_STATS,
+// which is numerically identical to the pre-loadout global constants -- see
+// that constant's own comment.
+export function createShip(id, spawnPos, stats = P.DEFAULT_SHIP_STATS) {
   const pos = { ...spawnPos };
   const { yaw, pitch } = P.yawPitchFromFacing(facingTowardWell(pos));
   return {
@@ -43,13 +48,20 @@ export function createShip(id, spawnPos) {
     thrusting: false,
     heat: 0,
     overheated: false,
+    stats,
   };
 }
 
-export function createMatchState(playerIds = ["p1", "p2"]) {
+// `loadouts` is an optional { [playerId]: statsObject } map -- a player
+// absent from it (or the whole argument omitted, as every existing test and
+// the pre-loadout call sites do) gets DEFAULT_SHIP_STATS via createShip's
+// own default, so this stays fully backward compatible.
+export function createMatchState(playerIds = ["p1", "p2"], loadouts = {}) {
   const spawnPositions = spawnPositionsFor(playerIds);
   const ships = {};
-  for (const id of playerIds) ships[id] = createShip(id, spawnPositions[id]);
+  for (const id of playerIds) {
+    ships[id] = loadouts[id] ? createShip(id, spawnPositions[id], loadouts[id]) : createShip(id, spawnPositions[id]);
+  }
   return {
     tick: 0,
     playerIds,
@@ -94,17 +106,18 @@ function respawn(ship, now) {
 
 // Heat rises while the engine is actually firing (thrust request AND not
 // already overheated), falls whenever it isn't. Clearing overheat requires
-// dropping all the way to OVERHEAT_CLEAR_HEAT, not just under MAX_HEAT --
-// see physics.js's MAX_HEAT comment for why that hysteresis gap exists.
+// dropping all the way to this ship's own overheatClearHeat, not just under
+// maxHeat -- see physics.js's MAX_HEAT comment for why that hysteresis gap
+// exists. Reads ship.stats (a ship class's heat profile) rather than
+// physics.js's module-level heat constants directly, same reasoning as
+// integrateShip taking a stats argument.
 function updateHeat(ship, requestedThrusting, dt) {
+  const { maxHeat, heatPerSecThrusting, heatCoolPerSec, overheatClearHeat } = ship.stats;
   const effectiveThrusting = requestedThrusting && !ship.overheated;
-  const heat = Math.max(
-    0,
-    Math.min(P.MAX_HEAT, ship.heat + (effectiveThrusting ? P.HEAT_PER_SEC_THRUSTING : -P.HEAT_COOL_PER_SEC) * dt)
-  );
+  const heat = Math.max(0, Math.min(maxHeat, ship.heat + (effectiveThrusting ? heatPerSecThrusting : -heatCoolPerSec) * dt));
   let overheated = ship.overheated;
-  if (!overheated && heat >= P.MAX_HEAT) overheated = true;
-  else if (overheated && heat <= P.OVERHEAT_CLEAR_HEAT) overheated = false;
+  if (!overheated && heat >= maxHeat) overheated = true;
+  else if (overheated && heat <= overheatClearHeat) overheated = false;
   return { effectiveThrusting, heat, overheated };
 }
 
@@ -134,7 +147,7 @@ export function stepMatch(state, inputs, dt, now) {
     // just cosmetically after, so overheat actually stops acceleration.
     const { effectiveThrusting, heat, overheated } = updateHeat(ship, !!input.thrusting, dt);
     const gatedInput = { ...input, thrusting: effectiveThrusting };
-    movedShips[id] = { ...ship, ...P.integrateShip(ship, dt, gatedInput, simTime), thrusting: effectiveThrusting, heat, overheated };
+    movedShips[id] = { ...ship, ...P.integrateShip(ship, dt, gatedInput, simTime, ship.stats), thrusting: effectiveThrusting, heat, overheated };
   }
 
   // 2. Fire (after movement, from each ship's new position/orientation).
@@ -143,9 +156,12 @@ export function stepMatch(state, inputs, dt, now) {
   for (const id of state.playerIds) {
     const ship = movedShips[id];
     const input = inputs[id];
-    if (!input?.firing || now - ship.lastFireTime < P.FIRE_COOLDOWN) continue;
-    const proj = P.launchProjectile(ship, id, nextProjectileId++);
-    spawnedProjectiles.push({ ...proj, spawnTime: now, prevPos: proj.pos });
+    if (!input?.firing || now - ship.lastFireTime < ship.stats.fireCooldown) continue;
+    const proj = P.launchProjectile(ship, id, nextProjectileId++, ship.stats);
+    // maxSpeed travels WITH the projectile (not re-read from the owner's
+    // ship each tick) -- the owner can respawn with different stats, or
+    // disconnect entirely, before an already-in-flight shot resolves.
+    spawnedProjectiles.push({ ...proj, spawnTime: now, prevPos: proj.pos, maxSpeed: ship.stats.projectileMaxSpeed });
     movedShips[id] = { ...ship, lastFireTime: now };
   }
 
@@ -154,7 +170,7 @@ export function stepMatch(state, inputs, dt, now) {
   //    they've actually existed for any time).
   const projStates = [...state.projectiles, ...spawnedProjectiles].map((p) => {
     const prevPos = p.prevPos ?? p.pos;
-    const stepped = P.integrateProjectile(p, dt, simTime);
+    const stepped = P.integrateProjectile(p, dt, simTime, p.maxSpeed);
     return { ...p, prevPos, pos: stepped.pos, vel: stepped.vel };
   });
 

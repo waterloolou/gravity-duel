@@ -15,6 +15,7 @@ import * as R from "./src/room.js";
 import * as M from "./src/match.js";
 import * as P from "./src/physics.js";
 import * as ProfileStore from "./src/profile-store.js";
+import * as Loadouts from "./src/loadouts.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8892;
@@ -147,10 +148,23 @@ function beginMatch(code) {
   // not just a hypothetical race.
   if (entry.room.phase !== "active") return;
   const activeIds = R.activePlayerIds(entry.room);
-  entry.matchState = M.createMatchState(activeIds);
+  const loadouts = {};
+  for (const id of activeIds) loadouts[id] = resolveLoadoutForSeat(entry, id);
+  entry.matchState = M.createMatchState(activeIds, loadouts);
   entry.inputs = {};
   for (const id of activeIds) entry.inputs[id] = neutralInput(entry.matchState.ships[id]);
   startTickLoop(code);
+}
+
+// A socket that never IDENTIFY'd (or whose profile lookup somehow comes back
+// empty) still gets a match -- just with the free starter loadout, same as
+// resolveShipStats' own fallback for an unrecognized ship/weapon id. A
+// missing loadout should never be the reason a match fails to start.
+function resolveLoadoutForSeat(entry, seatId) {
+  const seat = entry.room.players[seatId];
+  const sock = seat && sockets.get(seat.socketId);
+  const profile = sock?.profileId ? ProfileStore.get(sock.profileId) : null;
+  return Loadouts.resolveShipStats(profile?.equippedShip, profile?.equippedWeapon);
 }
 
 function serializeMatchState(state, now) {

@@ -37,6 +37,26 @@ export const RESPAWN_INVULN = 2.0; // seconds
 export const KILLS_TO_WIN = 5;
 export const SPAWN_RADIUS = 350;
 
+// The subset of tuning constants above that vary per ship class/weapon type
+// (src/loadouts.js), bundled into one object so match.js can stash it on
+// each ship at creation time instead of every physics function reaching for
+// module-level globals. This exact bundle IS what "no ship/weapon chosen
+// yet" (an un-identified player, or any physics.test.js call written before
+// loadouts existed) resolves to -- every function below defaults to it, so
+// behavior is byte-for-byte identical to the pre-loadout constants unless a
+// caller explicitly passes a different stats object.
+export const DEFAULT_SHIP_STATS = {
+  thrustAccel: SHIP_THRUST_ACCEL,
+  maxSpeed: SHIP_MAX_SPEED,
+  maxHeat: MAX_HEAT,
+  heatPerSecThrusting: HEAT_PER_SEC_THRUSTING,
+  heatCoolPerSec: HEAT_COOL_PER_SEC,
+  overheatClearHeat: OVERHEAT_CLEAR_HEAT,
+  fireCooldown: FIRE_COOLDOWN,
+  projectileLaunchSpeed: PROJECTILE_LAUNCH_SPEED,
+  projectileMaxSpeed: PROJECTILE_MAX_SPEED,
+};
+
 // Three moons on fixed circular orbits around the well, each an additional
 // gravity source (and collision hazard) -- not just decoration. Orbits are
 // kinematic (a pure function of simTime), not mutually N-body-simulated:
@@ -142,15 +162,18 @@ export function totalGravityAt(pos, simTime) {
 // (which predates moons) keeps testing exactly what it always tested --
 // at simTime=0 both moons sit far enough from every coordinate those tests
 // use that their pull is negligible next to the well's, verified by hand
-// when MOON_SPECS was chosen.
-export function integrateShip(ship, dt, input, simTime = 0) {
+// when MOON_SPECS was chosen. `stats` defaults to DEFAULT_SHIP_STATS for the
+// same reason: every pre-loadout call site (including every existing test)
+// keeps getting exactly today's SHIP_THRUST_ACCEL/SHIP_MAX_SPEED behavior
+// unless a caller explicitly passes a ship's own resolved stats.
+export function integrateShip(ship, dt, input, simTime = 0, stats = DEFAULT_SHIP_STATS) {
   const facing = facingFromYawPitch(input.aimYaw, input.aimPitch);
   const gravity = totalGravityAt(ship.pos, simTime);
-  const thrust = input.thrusting ? vScale(facing, SHIP_THRUST_ACCEL) : { x: 0, y: 0, z: 0 };
+  const thrust = input.thrusting ? vScale(facing, stats.thrustAccel) : { x: 0, y: 0, z: 0 };
   const drag = vScale(ship.vel, -SHIP_DRAG);
   const accel = vAdd(vAdd(gravity, thrust), drag);
 
-  let newVel = clampSpeed(vAdd(ship.vel, vScale(accel, dt)), SHIP_MAX_SPEED);
+  let newVel = clampSpeed(vAdd(ship.vel, vScale(accel, dt)), stats.maxSpeed);
   let newPos = vAdd(ship.pos, vScale(newVel, dt));
 
   const dist = vLen(newPos);
@@ -166,10 +189,15 @@ export function integrateShip(ship, dt, input, simTime = 0) {
 
 // One semi-implicit Euler step for a projectile: gravity (well + moons)
 // only, no thrust, no boundary bounce (projectiles despawn on exiting the
-// arena instead). See integrateShip for why simTime defaults to 0.
-export function integrateProjectile(proj, dt, simTime = 0) {
+// arena instead). See integrateShip for why simTime/maxSpeed default the way
+// they do -- a projectile's max speed comes from whoever fired it (see
+// launchProjectile), not necessarily PROJECTILE_MAX_SPEED, so it has to be
+// threaded through per-projectile rather than read from the ship each tick
+// (the owner might respawn with different stats, or disconnect, before an
+// already-in-flight shot resolves).
+export function integrateProjectile(proj, dt, simTime = 0, maxSpeed = PROJECTILE_MAX_SPEED) {
   const gravity = totalGravityAt(proj.pos, simTime);
-  const newVel = clampSpeed(vAdd(proj.vel, vScale(gravity, dt)), PROJECTILE_MAX_SPEED);
+  const newVel = clampSpeed(vAdd(proj.vel, vScale(gravity, dt)), maxSpeed);
   const newPos = vAdd(proj.pos, vScale(newVel, dt));
   return { pos: newPos, vel: newVel };
 }
@@ -177,9 +205,9 @@ export function integrateProjectile(proj, dt, simTime = 0) {
 // A freshly-fired projectile inherits the ship's own velocity plus muzzle
 // speed along its facing — a fast-moving ship's shots are correspondingly
 // faster, not a fixed speed regardless of the ship's own motion.
-export function launchProjectile(ship, ownerId, id) {
+export function launchProjectile(ship, ownerId, id, stats = DEFAULT_SHIP_STATS) {
   const facing = facingFromYawPitch(ship.yaw, ship.pitch);
-  const vel = clampSpeed(vAdd(ship.vel, vScale(facing, PROJECTILE_LAUNCH_SPEED)), PROJECTILE_MAX_SPEED);
+  const vel = clampSpeed(vAdd(ship.vel, vScale(facing, stats.projectileLaunchSpeed)), stats.projectileMaxSpeed);
   return { id, ownerId, pos: { ...ship.pos }, vel };
 }
 
