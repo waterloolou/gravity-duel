@@ -1,31 +1,47 @@
+/* Retro-futuristic: a synthwave terminal in dark mode (near-black, neon
+   purple/cyan, CRT scanlines), a "blueprint schematic" in light mode (pale
+   blueprint-blue, deep navy ink, same accent hues toned for contrast) --
+   two takes on the same theme rather than one theme with a dimmed twin. */
 :root {
-  --bg: #f6f5fb;
+  --bg: #eef1fb;
+  --bg-grid-line: rgba(76, 29, 149, 0.07);
   --panel: #ffffff;
-  --text: #1f2430;
-  --muted: #6b7280;
+  --panel-alt: #e7ebf9;
+  --text: #12142b;
+  --muted: #5a6088;
   --accent: #7c3aed;
-  --accent-soft: #ede9fe;
+  --accent-2: #0891b2;
+  --accent-glow: rgba(124, 58, 237, 0.35);
+  --accent-2-glow: rgba(8, 145, 178, 0.3);
+  --accent-soft: #e4defc;
   --accent-button: #7c3aed;
   --accent-button-text: #ffffff;
-  --border: #e5e7eb;
+  --border: #c4cae6;
   --bad: #dc2626;
   --bad-text: #b91c1c;
+  --font-display: "Orbitron", "Segoe UI", sans-serif;
+  --font-mono: "Share Tech Mono", "Cascadia Code", "Consolas", monospace;
   color-scheme: light dark;
 }
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #0a0912;
-    --panel: #17141f;
-    --text: #ece9f5;
-    --muted: #a5a1b8;
-    --accent: #a78bfa;
-    --accent-soft: #2c2440;
+    --bg: #05050f;
+    --bg-grid-line: rgba(91, 232, 255, 0.05);
+    --panel: #0d0b1a;
+    --panel-alt: #17142a;
+    --text: #e8eeff;
+    --muted: #8a90b8;
+    --accent: #b98bff;
+    --accent-2: #5be8ff;
+    --accent-glow: rgba(185, 139, 255, 0.55);
+    --accent-2-glow: rgba(91, 232, 255, 0.4);
+    --accent-soft: #241f3d;
     --accent-button: #7c3aed;
     --accent-button-text: #ffffff;
-    --border: #322c45;
-    --bad: #f87171;
-    --bad-text: #f87171;
+    --border: #362f52;
+    --bad: #ff5577;
+    --bad-text: #ff5577;
   }
 }
 
@@ -38,11 +54,37 @@ body {
   height: 100%;
 }
 
+button,
+input {
+  font-family: inherit;
+}
+
 body {
   margin: 0;
-  font-family: "Segoe UI", system-ui, -apple-system, sans-serif;
-  background: var(--bg);
+  font-family: var(--font-mono);
   color: var(--text);
+  min-height: 100%;
+  position: relative;
+  /* A faint grid -- synthwave horizon grid in dark mode, blueprint-paper
+     grid in light mode, same technique either way. */
+  background:
+    linear-gradient(var(--bg-grid-line) 1px, transparent 1px) 0 0 / 34px 34px,
+    linear-gradient(90deg, var(--bg-grid-line) 1px, transparent 1px) 0 0 / 34px 34px,
+    var(--bg);
+}
+
+@media (prefers-color-scheme: dark) {
+  /* CRT scanlines -- a dark-mode-only touch; scanlines read as "old
+     monitor," which fits the neon terminal look but not the light-mode
+     blueprint look, so they're gated to dark mode specifically. */
+  body::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(to bottom, rgba(255, 255, 255, 0.03) 0px, rgba(255, 255, 255, 0.03) 1px, transparent 1px, transparent 3px);
+    z-index: 9999;
+  }
 }
 
 #app {
@@ -52,14 +94,46 @@ body {
 }
 
 .app-header {
+  position: relative;
   text-align: center;
-  margin-bottom: 24px;
+  margin: 0 auto 28px;
+  padding: 18px 40px;
+  max-width: 560px;
+}
+
+/* A bracket frame around the title -- [ ... ] -- a small nod to sci-fi HUD
+   targeting-reticle framing rather than a plain heading. */
+.app-header::before,
+.app-header::after {
+  content: "";
+  position: absolute;
+  top: 4px;
+  bottom: 4px;
+  width: 18px;
+  border-top: 2px solid var(--accent-2);
+  border-bottom: 2px solid var(--accent-2);
+  opacity: 0.7;
+}
+
+.app-header::before {
+  left: 0;
+  border-left: 2px solid var(--accent-2);
+}
+
+.app-header::after {
+  right: 0;
+  border-right: 2px solid var(--accent-2);
 }
 
 .app-header h1 {
-  font-size: 2.2rem;
-  margin: 0 0 4px;
+  font-family: var(--font-display);
+  font-size: 2.3rem;
+  font-weight: 900;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  margin: 0 0 6px;
   color: var(--accent);
+  text-shadow: 0 0 18px var(--accent-glow);
 }
 
 .tagline {
@@ -74,7 +148,9 @@ body {
   margin-top: 10px;
   padding: 4px 14px;
   background: var(--accent-soft);
+  border: 1px solid var(--accent-2);
   border-radius: 999px;
+  box-shadow: 0 0 10px var(--accent-2-glow);
 }
 
 .currency-value {
@@ -89,11 +165,18 @@ body {
   letter-spacing: 0.08em;
 }
 
+/* Angular, clipped-corner panels/buttons throughout (instead of fully
+   rounded) -- the one consistent shape language change that reads as
+   "sci-fi terminal" rather than "generic rounded SaaS card" everywhere
+   it's applied. Gauges/badges (currency, heat, shield) stay pill-shaped on
+   purpose -- a deliberate contrast between angular structural chrome and
+   rounded HUD readouts, both real sci-fi UI tropes. */
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 24px;
+  border-radius: 0;
+  clip-path: polygon(18px 0, 100% 0, 100% calc(100% - 18px), calc(100% - 18px) 100%, 0 100%, 0 18px);
+  padding: 28px 26px;
   text-align: center;
   /* Keep the home/lobby panels compact even though #app was widened to
      give the 3D play view (#view-play, full-width of #app) more room --
@@ -105,22 +188,36 @@ body {
 }
 
 .panel h2 {
+  font-family: var(--font-display);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
   margin-top: 0;
+}
+
+button.primary,
+button.secondary {
+  font-family: var(--font-mono);
+  text-transform: uppercase;
+  cursor: pointer;
+  border-radius: 0;
+  transition: box-shadow 0.2s ease, background-color 0.2s ease, transform 0.15s ease;
 }
 
 button.primary {
   background: var(--accent-button);
   color: var(--accent-button-text);
-  border: none;
-  border-radius: 999px;
+  border: 1px solid var(--accent-button);
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
   padding: 12px 28px;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
 }
 
 button.primary:hover:not(:disabled) {
   transform: translateY(-1px);
+  box-shadow: 0 0 16px var(--accent-glow);
 }
 
 button.primary:disabled {
@@ -131,12 +228,22 @@ button.primary:disabled {
 button.secondary {
   background: transparent;
   color: var(--accent);
-  border: 2px solid var(--accent);
-  border-radius: 999px;
+  border: 1.5px solid var(--accent);
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
   padding: 10px 20px;
-  font-size: 0.95rem;
-  font-weight: 600;
-  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+}
+
+button.secondary:hover:not(:disabled) {
+  background: var(--accent-soft);
+  box-shadow: 0 0 12px var(--accent-glow);
+}
+
+button.secondary:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .quick-play-hint {
@@ -154,8 +261,10 @@ button.secondary {
 .private-room summary {
   cursor: pointer;
   color: var(--muted);
-  font-size: 0.9rem;
-  font-weight: 600;
+  font-size: 0.8rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
 }
 
 .private-room[open] summary {
@@ -176,10 +285,18 @@ button.secondary {
   letter-spacing: 0.2em;
   font-size: 1.1rem;
   padding: 10px;
-  border-radius: 10px;
+  border-radius: 0;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
   border: 1px solid var(--border);
-  background: var(--bg);
+  background: var(--panel-alt);
   color: var(--text);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.join-row input:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 10px var(--accent-2-glow);
 }
 
 .error-text {
@@ -188,10 +305,14 @@ button.secondary {
 }
 
 .status-text {
+  font-family: var(--font-display);
   color: var(--accent);
-  font-size: 1.3rem;
+  font-size: 1.15rem;
   font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
   min-height: 1.6em;
+  text-shadow: 0 0 12px var(--accent-glow);
 }
 
 .lobby-hint {
@@ -243,15 +364,18 @@ button.secondary {
 .loadout-card {
   background: var(--accent-soft);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
   padding: 14px;
   display: flex;
   flex-direction: column;
   gap: 10px;
+  transition: box-shadow 0.2s ease;
 }
 
 .loadout-card.equipped {
   border-color: var(--accent);
+  box-shadow: 0 0 14px var(--accent-glow);
 }
 
 .loadout-name {
@@ -293,7 +417,8 @@ button.secondary {
   gap: 12px;
   background: var(--accent-soft);
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
   padding: 12px 14px;
 }
 
@@ -324,6 +449,7 @@ button.secondary {
 .upgrade-pip.filled {
   background: var(--accent);
   border-color: var(--accent);
+  box-shadow: 0 0 5px var(--accent-glow);
 }
 
 .upgrade-row button {
@@ -366,7 +492,7 @@ button.secondary {
   flex-direction: column;
   justify-content: space-between;
   padding: 16px;
-  font-family: "Cascadia Code", "Consolas", monospace;
+  font-family: var(--font-mono);
   color: #f2f2f8;
   text-shadow: 0 1px 3px rgba(0, 0, 0, 0.8);
 }
@@ -619,8 +745,9 @@ button.secondary {
 }
 
 .countdown-number {
+  font-family: var(--font-display);
   font-size: 4rem;
-  font-weight: 800;
+  font-weight: 900;
   color: var(--accent);
   text-shadow: 0 0 24px rgba(124, 58, 237, 0.6);
   margin: 8px 0 0;
@@ -666,8 +793,10 @@ button.secondary {
 }
 
 .match-over-title {
-  font-size: 2.2rem;
-  font-weight: 800;
+  font-family: var(--font-display);
+  font-size: 2.3rem;
+  font-weight: 900;
+  letter-spacing: 0.05em;
   color: #fff;
   text-align: center;
   text-shadow: 0 0 28px rgba(124, 58, 237, 0.7);
