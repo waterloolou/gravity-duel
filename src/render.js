@@ -173,6 +173,7 @@ function buildShipGeometries() {
 const MOON_TEXTURES = [
   ["#9c9aa8", "#5c5a68"],
   ["#b06a4a", "#6e3f2c"],
+  ["#7fa8b0", "#3f5c62"],
 ];
 
 function buildMoonMeshes() {
@@ -250,6 +251,7 @@ function createShipModel(geo, hullColor, engineColor) {
   group.add(body, tail, wingL, wingR, engine);
 
   let engineIntensity = 0.35;
+  let isOverheated = false;
   return {
     group,
     setInvulnerable(isInvuln) {
@@ -265,6 +267,15 @@ function createShipModel(geo, hullColor, engineColor) {
       engineIntensity += (target - engineIntensity) * 0.15;
       engine.scale.setScalar(0.7 + engineIntensity * 0.85);
       engineMat.opacity = 0.3 + engineIntensity * 0.65;
+    },
+    // A dead engine (thrusting always false while overheated, see match.js)
+    // already dims via setThrusting above -- this adds the actual "why" cue,
+    // a hard color swap to the same warning red as the HUD's heat gauge, so
+    // an overheated opponent reads as overheated and not just idle.
+    setOverheated(overheated) {
+      if (overheated === isOverheated) return;
+      isOverheated = overheated;
+      engineMat.color.set(overheated ? 0xff3d5a : engineColor);
     },
   };
 }
@@ -353,7 +364,7 @@ export function createRenderer(canvas) {
   );
   scene.add(arenaMesh);
 
-  // Two moons on fixed orbits (see physics.js's MOON_SPECS) -- real gravity
+  // Moons on fixed orbits (see physics.js's MOON_SPECS) -- real gravity
   // sources and collision hazards, not just scenery, so their on-screen
   // position must track the same simTime the server's physics uses (driven
   // via updateMoons(tick) each frame, not an independent client-side clock).
@@ -369,15 +380,27 @@ export function createRenderer(canvas) {
     });
   }
 
-  // Both ships share the same geometry set. The local player's own ship is
+  // All ships share the same geometry set. The local player's own ship is
   // only ever visible in third-person mode (in first person it's always
-  // exactly at the camera) -- see updateCamera.
+  // exactly at the camera) -- see updateCamera. Every other seat (1-3 of
+  // them, free-for-all) gets its own pooled model, created lazily the first
+  // time that player id is seen and disposed once they're gone (same
+  // create-on-sight/dispose-on-absence lifecycle as projectileMeshes below).
   const shipGeo = buildShipGeometries();
-  const opponentShip = createShipModel(shipGeo, OWN_COLOR, 0xffffff);
-  scene.add(opponentShip.group);
   const selfShipModel = createShipModel(shipGeo, OWN_COLOR, 0xffffff);
   selfShipModel.group.visible = false;
   scene.add(selfShipModel.group);
+  const opponentShips = new Map(); // playerId -> ship model
+
+  function getOrCreateOpponentShip(id) {
+    let model = opponentShips.get(id);
+    if (!model) {
+      model = createShipModel(shipGeo, ENEMY_COLOR, 0xffffff);
+      scene.add(model.group);
+      opponentShips.set(id, model);
+    }
+    return model;
+  }
 
   // Projectiles: a glowing "blaster bolt" (core + glow + trailing streak,
   // see buildBoltGeometries/createBoltVisual) oriented along its own
@@ -509,6 +532,7 @@ export function createRenderer(canvas) {
       selfShipModel.group.lookAt(pos.x + f.x, pos.y + f.y, pos.z + f.z);
       selfShipModel.setInvulnerable(!!selfShip.invulnerable);
       selfShipModel.setThrusting(!!thrusting);
+      selfShipModel.setOverheated(!!selfShip.overheated);
 
       const chaseOffset = facing.clone().multiplyScalar(-CHASE_DISTANCE);
       chaseOffset.y += CHASE_HEIGHT;
@@ -530,16 +554,28 @@ export function createRenderer(canvas) {
     localThrusting = isThrusting;
   }
 
-  function updateOpponent(oppShip) {
-    opponentShip.group.position.set(oppShip.pos[0], oppShip.pos[1], oppShip.pos[2]);
-    const facing = P.facingFromYawPitch(oppShip.yaw, oppShip.pitch);
-    opponentShip.group.lookAt(
-      opponentShip.group.position.x + facing.x,
-      opponentShip.group.position.y + facing.y,
-      opponentShip.group.position.z + facing.z
-    );
-    opponentShip.setInvulnerable(!!oppShip.invulnerable);
-    opponentShip.setThrusting(!!oppShip.thrusting);
+  // `ships` is the full server snapshot (selfId included) -- this filters
+  // selfId out itself so callers can just pass the whole snapshot through.
+  function updateOpponents(ships, selfId) {
+    const seen = new Set();
+    for (const [id, ship] of Object.entries(ships)) {
+      if (id === selfId) continue;
+      seen.add(id);
+      const model = getOrCreateOpponentShip(id);
+      model.group.position.set(ship.pos[0], ship.pos[1], ship.pos[2]);
+      const facing = P.facingFromYawPitch(ship.yaw, ship.pitch);
+      model.group.lookAt(model.group.position.x + facing.x, model.group.position.y + facing.y, model.group.position.z + facing.z);
+      model.setInvulnerable(!!ship.invulnerable);
+      model.setThrusting(!!ship.thrusting);
+      model.setOverheated(!!ship.overheated);
+    }
+    // Drop any pooled model for a player no longer in the snapshot (they
+    // disconnected, or the match ended and a new roster is coming).
+    for (const [id, model] of opponentShips) {
+      if (seen.has(id)) continue;
+      scene.remove(model.group);
+      opponentShips.delete(id);
+    }
   }
 
   function updateProjectiles(projectiles, selfId, onSpawn) {
@@ -649,7 +685,7 @@ export function createRenderer(canvas) {
   return {
     resize,
     updateCamera,
-    updateOpponent,
+    updateOpponents,
     updateProjectiles,
     updateTrajectoryPreview,
     updateMoons,

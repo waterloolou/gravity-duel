@@ -14,31 +14,78 @@ function approx(actual, expected, tolerance, msg) {
 }
 
 const NO_INPUT = { aimYaw: 0, aimPitch: 0, thrusting: false, firing: false };
+const THRUST_INPUT = { aimYaw: 0, aimPitch: 0, thrusting: true, firing: false };
 
-check("spawn positions are point-symmetric about the well (180-degree rotation maps p1's spawn to p2's)", () => {
-  const p1 = M.SPAWN_POSITIONS.p1;
-  const p2 = M.SPAWN_POSITIONS.p2;
-  const rotated = { x: -p1.x || 0, y: -p1.y || 0, z: -p1.z || 0 }; // `|| 0` avoids a -0 vs 0 false mismatch
-  assert.deepEqual(rotated, p2, "180-degree rotation of p1's spawn should exactly equal p2's spawn");
-
-  const distP1 = P.vLen(P.vSub(p1, P.WELL_POS));
-  const distP2 = P.vLen(P.vSub(p2, P.WELL_POS));
-  approx(distP1, distP2, 1e-9, "both spawns equidistant from the well");
+check("spawnPositionsFor evenly spreads however many players are in the match around the well, all equidistant", () => {
+  for (const n of [2, 3, 4]) {
+    const ids = ["p1", "p2", "p3", "p4"].slice(0, n);
+    const positions = M.spawnPositionsFor(ids);
+    for (const id of ids) {
+      const dist = P.vLen(P.vSub(positions[id], P.WELL_POS));
+      approx(dist, P.SPAWN_RADIUS, 1e-6, `${id} should sit exactly SPAWN_RADIUS from the well (n=${n})`);
+    }
+  }
 });
 
-check("both spawns are safely outside the well's danger radius and inside the arena", () => {
-  for (const id of ["p1", "p2"]) {
-    const dist = P.vLen(P.vSub(M.SPAWN_POSITIONS[id], P.WELL_POS));
+check("2-player spawns are antipodal, matching the original 1v1 layout", () => {
+  const { p1, p2 } = M.spawnPositionsFor(["p1", "p2"]);
+  approx(p1.x + p2.x, 0, 1e-9, "p1 and p2 should sit on exactly opposite sides of the well (x)");
+  approx(p1.z + p2.z, 0, 1e-9, "p1 and p2 should sit on exactly opposite sides of the well (z)");
+});
+
+check("all spawns are safely outside the well's danger radius and inside the arena, at any player count", () => {
+  const positions = M.spawnPositionsFor(["p1", "p2", "p3", "p4"]);
+  for (const id of ["p1", "p2", "p3", "p4"]) {
+    const dist = P.vLen(P.vSub(positions[id], P.WELL_POS));
     assert.ok(dist > P.WELL_RADIUS + P.SHIP_RADIUS, `${id} spawn must clear the well's danger radius`);
     assert.ok(dist < P.ARENA_RADIUS, `${id} spawn must be inside the arena`);
   }
 });
 
 check("a freshly created ship faces toward the well", () => {
-  const ship = M.createShip("p1");
+  const spawnPos = M.spawnPositionsFor(["p1", "p2"]).p1;
+  const ship = M.createShip("p1", spawnPos);
   const facing = P.facingFromYawPitch(ship.yaw, ship.pitch);
   const towardWell = P.vNormalize(P.vSub(P.WELL_POS, ship.pos));
   approx(P.vDot(facing, towardWell), 1, 1e-6, "facing should point exactly toward the well");
+});
+
+check("createMatchState builds exactly one ship per requested player id, in a free-for-all roster of any size", () => {
+  const state = M.createMatchState(["p1", "p2", "p3"]);
+  assert.deepEqual(state.playerIds, ["p1", "p2", "p3"]);
+  assert.deepEqual(Object.keys(state.ships).sort(), ["p1", "p2", "p3"]);
+});
+
+check("removePlayer drops a ship and its own in-flight projectiles, leaving everyone else untouched", () => {
+  let state = M.createMatchState(["p1", "p2", "p3"]);
+  state.projectiles.push(
+    { id: 1, ownerId: "p2", pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 },
+    { id: 2, ownerId: "p1", pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 }
+  );
+  const next = M.removePlayer(state, "p2");
+  assert.deepEqual(next.playerIds, ["p1", "p3"]);
+  assert.equal(next.ships.p2, undefined);
+  assert.ok(next.ships.p1 && next.ships.p3, "remaining ships should be untouched");
+  assert.equal(next.projectiles.length, 1, "only p2's own projectile should be removed");
+  assert.equal(next.projectiles[0].id, 2);
+});
+
+check("removePlayer is a no-op if that id isn't actually in the match", () => {
+  const state = M.createMatchState(["p1", "p2"]);
+  assert.equal(M.removePlayer(state, "p9"), state, "should return the same state reference, not a needless copy");
+});
+
+check("combat and win detection generalize to free-for-all matches of more than 2 players", () => {
+  let state = M.createMatchState(["p1", "p2", "p3"]);
+  state.ships.p3 = { ...state.ships.p3, kills: P.KILLS_TO_WIN - 1, pos: { x: 150, y: 0, z: 0 } };
+  state.projectiles.push({ id: 1, ownerId: "p3", pos: { x: 150, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 });
+  state.ships.p1 = { ...state.ships.p1, pos: { x: 150, y: 0, z: 0 } }; // sits right where p3's shot already is
+  const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT, p3: NO_INPUT }, P.TICK_DT, 1);
+  assert.equal(next.ships.p3.kills, P.KILLS_TO_WIN);
+  assert.equal(next.winner, "p3");
+  const overEvent = events.find((e) => e.event === "match_over");
+  assert.ok(overEvent, "match_over should fire");
+  assert.deepEqual(overEvent.finalScore, { p1: 0, p2: 0, p3: P.KILLS_TO_WIN });
 });
 
 check("firing respects the cooldown -- holding fire does not spawn a projectile every tick", () => {
@@ -109,8 +156,8 @@ check("simultaneous mutual kills: both ships die and both killers are credited i
   const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
   assert.equal(next.ships.p1.kills, 1, "p1 should be credited for killing p2");
   assert.equal(next.ships.p2.kills, 1, "p2 should be credited for killing p1");
-  assert.deepEqual(next.ships.p1.pos, M.SPAWN_POSITIONS.p1, "p1 should have respawned");
-  assert.deepEqual(next.ships.p2.pos, M.SPAWN_POSITIONS.p2, "p2 should have respawned");
+  assert.deepEqual(next.ships.p1.pos, state.ships.p1.spawnPos, "p1 should have respawned");
+  assert.deepEqual(next.ships.p2.pos, state.ships.p2.spawnPos, "p2 should have respawned");
   assert.equal(events.filter((e) => e.event === "hit").length, 2, "two independent hit events, no order-dependent suppression");
 });
 
@@ -130,7 +177,7 @@ check("flying into the well is lethal, same as being shot", () => {
   let state = M.createMatchState();
   state.ships.p1 = { ...state.ships.p1, pos: { x: P.WELL_RADIUS + P.SHIP_RADIUS - 1, y: 0, z: 0 } };
   const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
-  assert.deepEqual(next.ships.p1.pos, M.SPAWN_POSITIONS.p1, "p1 should have respawned after flying into the well");
+  assert.deepEqual(next.ships.p1.pos, state.ships.p1.spawnPos, "p1 should have respawned after flying into the well");
   assert.ok(events.some((e) => e.event === "well_death" && e.victimId === "p1"));
 });
 
@@ -141,7 +188,7 @@ check("flying into a moon is lethal, just like the well, but credits no one", ()
   const moonPos = P.moonPosition(P.MOON_SPECS[0], 0);
   state.ships.p1 = { ...state.ships.p1, pos: { ...moonPos } };
   const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
-  assert.deepEqual(next.ships.p1.pos, M.SPAWN_POSITIONS.p1, "p1 should have respawned after crashing into a moon");
+  assert.deepEqual(next.ships.p1.pos, state.ships.p1.spawnPos, "p1 should have respawned after crashing into a moon");
   assert.ok(events.some((e) => e.event === "moon_death" && e.victimId === "p1"));
   assert.equal(next.ships.p2.kills, 0, "a moon death, like a well death, credits no one");
 });
@@ -152,6 +199,42 @@ check("a projectile flying into a moon is silently consumed, just like the well"
   state.projectiles.push({ id: 7, ownerId: "p1", pos: { ...moonPos }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 });
   const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
   assert.equal(next.projectiles.find((p) => p.id === 7), undefined, "the projectile should have been consumed by the moon");
+});
+
+check("sustained thrust builds heat and eventually forces an overheat lockout", () => {
+  let state = M.createMatchState();
+  let overheatedAtTick = null;
+  for (let i = 0; i < 200 && overheatedAtTick === null; i++) {
+    ({ state } = M.stepMatch(state, { p1: THRUST_INPUT, p2: NO_INPUT }, P.TICK_DT, i * P.TICK_DT));
+    if (state.ships.p1.overheated) overheatedAtTick = i;
+  }
+  assert.ok(overheatedAtTick !== null, "continuous thrust should eventually overheat the engine");
+  assert.equal(state.ships.p1.heat, P.MAX_HEAT, "heat should cap exactly at MAX_HEAT, not overshoot");
+
+  // Holding thrust down while overheated should be entirely ignored by physics.
+  const { state: nextTick } = M.stepMatch(state, { p1: THRUST_INPUT, p2: NO_INPUT }, P.TICK_DT, (overheatedAtTick + 1) * P.TICK_DT);
+  assert.equal(nextTick.ships.p1.thrusting, false, "an overheated engine should not actually fire even with thrust held down");
+});
+
+check("overheat only clears once heat cools all the way down to OVERHEAT_CLEAR_HEAT, not just under MAX_HEAT", () => {
+  const base = M.createMatchState();
+
+  let stillHot = { ...base, ships: { ...base.ships, p1: { ...base.ships.p1, heat: P.OVERHEAT_CLEAR_HEAT + 1, overheated: true } } };
+  ({ state: stillHot } = M.stepMatch(stillHot, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 0));
+  assert.equal(stillHot.ships.p1.overheated, true, "should stay locked out while still above the clear threshold");
+
+  let atThreshold = { ...base, ships: { ...base.ships, p1: { ...base.ships.p1, heat: P.OVERHEAT_CLEAR_HEAT, overheated: true } } };
+  ({ state: atThreshold } = M.stepMatch(atThreshold, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 0));
+  assert.equal(atThreshold.ships.p1.overheated, false, "should clear once heat reaches the threshold");
+});
+
+check("a respawn resets heat and clears overheat, giving a fresh engine on death", () => {
+  let state = M.createMatchState();
+  state.ships.p1 = { ...state.ships.p1, pos: { x: 150, y: 0, z: 0 }, heat: 80, overheated: true };
+  state.projectiles.push({ id: 1, ownerId: "p2", pos: { x: 150, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 });
+  const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
+  assert.equal(next.ships.p1.heat, 0, "respawn should reset heat to 0");
+  assert.equal(next.ships.p1.overheated, false, "respawn should clear overheat");
 });
 
 check("win is declared at exactly KILLS_TO_WIN, not one before", () => {

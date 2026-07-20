@@ -13,6 +13,18 @@ export const SHIP_DRAG = 1.0; // dv/dt includes -SHIP_DRAG * v; terminal speed =
 export const SHIP_MAX_SPEED = 700;
 export const BOUNDARY_RESTITUTION = 0.6;
 
+// Thrust engine heat: 0-100, rises while thrusting, falls whenever not.
+// Hitting MAX_HEAT force-cuts thrust (held-down W is simply ignored) until
+// heat bleeds back down to OVERHEAT_CLEAR_HEAT -- a hysteresis gap rather
+// than "clears the instant it dips below max" so a ship sitting right at the
+// threshold doesn't flicker in and out of overheat tick to tick. At
+// HEAT_PER_SEC_THRUSTING, continuous thrust maxes out in 2.5s; at
+// HEAT_COOL_PER_SEC, a full cooldown from max takes 4s idle.
+export const MAX_HEAT = 100;
+export const HEAT_PER_SEC_THRUSTING = 40;
+export const HEAT_COOL_PER_SEC = 25;
+export const OVERHEAT_CLEAR_HEAT = 30;
+
 export const PROJECTILE_RADIUS = 2;
 export const PROJECTILE_LAUNCH_SPEED = 500;
 export const PROJECTILE_MAX_SPEED = 900;
@@ -25,20 +37,23 @@ export const RESPAWN_INVULN = 2.0; // seconds
 export const KILLS_TO_WIN = 5;
 export const SPAWN_RADIUS = 350;
 
-// Two moons on fixed circular orbits around the well, each an additional
+// Three moons on fixed circular orbits around the well, each an additional
 // gravity source (and collision hazard) -- not just decoration. Orbits are
 // kinematic (a pure function of simTime), not mutually N-body-simulated:
 // real enough to matter tactically (slingshot around a moon, or get pulled
 // off course by one) without the instability of actually integrating
 // multiple massive bodies against each other. orbitRadius is deliberately
-// kept clear of SPAWN_RADIUS (350) by a comfortable margin on both sides --
+// kept clear of SPAWN_RADIUS (350) by a comfortable margin on every side --
 // a moon's orbit crosses the well-ship axis exactly twice per revolution
 // (at inclination-tilt angle 0 and pi), and if that crossing point ever
 // landed close to 350, a freshly (re)spawned ship could momentarily overlap
-// a moon.
+// a moon. moonA/moonB sit inside that radius, moonC sits outside it (with
+// ARENA_RADIUS=500 clearance to spare), giving the map an outer hazard ring
+// distinct from the two inner ones.
 export const MOON_SPECS = [
   { name: "moonA", orbitRadius: 190, period: 34, radius: 16, mu: 320_000, phase: Math.PI / 2, inclination: 0.32 },
   { name: "moonB", orbitRadius: 300, period: 68, radius: 24, mu: 600_000, phase: Math.PI * 1.35, inclination: -0.46 },
+  { name: "moonC", orbitRadius: 420, period: 96, radius: 20, mu: 450_000, phase: Math.PI * 0.15, inclination: 0.6 },
 ];
 
 // --- vec3 helpers -----------------------------------------------------

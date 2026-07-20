@@ -30,31 +30,82 @@ check("createRoom starts in the waiting phase with only the host present", () =>
   assert.equal(room.phase, "waiting");
   assert.equal(room.players.p1.socketId, "socket-1");
   assert.equal(room.players.p2, null);
+  assert.equal(room.players.p3, null);
+  assert.equal(room.players.p4, null);
 });
 
-check("joinRoom transitions waiting -> full-not-ready and assigns the joiner to p2", () => {
-  const room = R.createRoom("ABCD", "socket-1");
-  const { room: joined, error } = R.joinRoom(room, "socket-2");
-  assert.equal(error, null);
-  assert.equal(joined.phase, "full-not-ready");
-  assert.equal(joined.players.p2.socketId, "socket-2");
+check("joinRoom fills the next open slot and stays joinable below capacity", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  let joined = R.joinRoom(room, "socket-2");
+  assert.equal(joined.error, null);
+  assert.equal(joined.playerId, "p2");
+  assert.equal(joined.room.phase, "waiting", "still joinable with only 2 of 4 seats filled");
+  room = joined.room;
+
+  joined = R.joinRoom(room, "socket-3");
+  assert.equal(joined.playerId, "p3");
+  assert.equal(joined.room.phase, "waiting", "still joinable with only 3 of 4 seats filled");
+  room = joined.room;
+
+  joined = R.joinRoom(room, "socket-4");
+  assert.equal(joined.playerId, "p4");
+  assert.equal(joined.room.phase, "full", "4th join fills the lobby");
 });
 
-check("joinRoom rejects a third player with ROOM_FULL", () => {
+check("joinRoom rejects a 5th player once the lobby is full", () => {
   let room = R.createRoom("ABCD", "socket-1");
   ({ room } = R.joinRoom(room, "socket-2"));
-  const { room: after, error } = R.joinRoom(room, "socket-3");
+  ({ room } = R.joinRoom(room, "socket-3"));
+  ({ room } = R.joinRoom(room, "socket-4"));
+  const { room: after, error } = R.joinRoom(room, "socket-5");
   assert.equal(error, "ROOM_FULL");
-  assert.equal(after.players.p2.socketId, "socket-2", "the original second player should be untouched");
+  assert.equal(after.players.p4.socketId, "socket-4", "the original 4th player should be untouched");
 });
 
-check("a round doesn't start until BOTH players are ready", () => {
+check("findJoinableRoom picks a waiting room (any size below capacity) and ignores full/in-progress ones", () => {
+  let full = R.createRoom("BBBB", "socket-2");
+  ({ room: full } = R.joinRoom(full, "socket-3"));
+  ({ room: full } = R.joinRoom(full, "socket-4"));
+  ({ room: full } = R.joinRoom(full, "socket-5"));
+  const threeOfFour = R.createRoom("CCCC", "socket-6");
+  const { room: partial } = R.joinRoom(threeOfFour, "socket-7");
+  assert.equal(R.findJoinableRoom([full, partial]), partial);
+});
+
+check("findJoinableRoom returns null when nothing is joinable", () => {
+  let full = R.createRoom("AAAA", "socket-1");
+  ({ room: full } = R.joinRoom(full, "socket-2"));
+  ({ room: full } = R.joinRoom(full, "socket-3"));
+  ({ room: full } = R.joinRoom(full, "socket-4"));
+  assert.equal(R.findJoinableRoom([full]), null);
+  assert.equal(R.findJoinableRoom([]), null);
+});
+
+check("a match doesn't start until EVERY currently-seated player is ready", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  room = R.setReady(room, "p1", true);
+  assert.equal(room.phase, "waiting", "one of three ready should not start the match");
+  room = R.setReady(room, "p2", true);
+  assert.equal(room.phase, "waiting", "two of three ready should not start the match");
+  room = R.setReady(room, "p3", true);
+  assert.equal(room.phase, "starting", "all three seated players ready should start the match");
+});
+
+check("a match can start with only 2 players -- it doesn't have to wait for the lobby to fill to 4", () => {
   let room = R.createRoom("ABCD", "socket-1");
   ({ room } = R.joinRoom(room, "socket-2"));
   room = R.setReady(room, "p1", true);
-  assert.equal(room.phase, "full-not-ready", "only one player ready should not start the match");
   room = R.setReady(room, "p2", true);
-  assert.equal(room.phase, "starting", "both ready should move to starting");
+  assert.equal(room.phase, "starting");
+});
+
+check("setReady is a no-op while only the host is seated (nothing to ready up against)", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  const after = R.setReady(room, "p1", true);
+  assert.equal(after.players.p1.ready, false);
+  assert.equal(after.phase, "waiting");
 });
 
 check("beginMatch only fires from the starting phase", () => {
@@ -72,15 +123,17 @@ check("beginMatch only fires from the starting phase", () => {
 
 check("disconnect while only the host is present deletes the room", () => {
   const room = R.createRoom("ABCD", "socket-1");
-  const { deleted } = R.handleDisconnect(room, "socket-1", 0);
+  const { deleted, disconnectedId } = R.handleDisconnect(room, "socket-1", 0);
   assert.equal(deleted, true);
+  assert.equal(disconnectedId, "p1");
 });
 
 check("disconnect pre-match reverts to waiting with the same code, remaining player becomes p1", () => {
   let room = R.createRoom("ABCD", "socket-1");
   ({ room } = R.joinRoom(room, "socket-2"));
-  const { room: after, deleted } = R.handleDisconnect(room, "socket-1", 0); // host (p1) leaves
+  const { room: after, deleted, disconnectedId } = R.handleDisconnect(room, "socket-1", 0); // host (p1) leaves
   assert.equal(deleted, false);
+  assert.equal(disconnectedId, "p1");
   assert.equal(after.phase, "waiting");
   assert.equal(after.code, "ABCD", "room code must be preserved, not regenerated");
   assert.equal(after.players.p1.socketId, "socket-2", "the remaining player becomes p1");
@@ -88,7 +141,21 @@ check("disconnect pre-match reverts to waiting with the same code, remaining pla
   assert.equal(after.players.p2, null);
 });
 
-check("disconnect during ready-countdown also reverts to waiting (not just full-not-ready)", () => {
+check("disconnect pre-match with 3 players compacts the remaining two down to p1/p2 and resets ready", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  room = R.setReady(room, "p1", true); // p1 (socket-1) readies, then leaves
+  const { room: after } = R.handleDisconnect(room, "socket-1", 0);
+  assert.equal(after.phase, "waiting");
+  assert.equal(after.players.p1.socketId, "socket-2");
+  assert.equal(after.players.p2.socketId, "socket-3");
+  assert.equal(after.players.p3, null);
+  assert.equal(after.players.p1.ready, false, "surviving players' ready state resets on any roster change");
+  assert.equal(after.players.p2.ready, false);
+});
+
+check("disconnect during ready-countdown also reverts to waiting (not just the pre-ready lobby phases)", () => {
   let room = R.createRoom("ABCD", "socket-1");
   ({ room } = R.joinRoom(room, "socket-2"));
   room = R.setReady(room, "p1", true);
@@ -98,7 +165,7 @@ check("disconnect during ready-countdown also reverts to waiting (not just full-
   assert.equal(after.phase, "waiting");
 });
 
-check("disconnect during an active match ends the WHOLE match in favor of the remaining player, not just the current moment", () => {
+check("disconnect during an active 1v1 match ends the WHOLE match in favor of the remaining player", () => {
   let room = R.createRoom("ABCD", "socket-1");
   ({ room } = R.joinRoom(room, "socket-2"));
   room = R.setReady(room, "p1", true);
@@ -106,8 +173,46 @@ check("disconnect during an active match ends the WHOLE match in favor of the re
   room = R.beginMatch(room);
   assert.equal(room.phase, "active");
 
-  const { room: after, deleted } = R.handleDisconnect(room, "socket-2", 0); // p2 leaves mid-match
+  const { room: after, deleted, disconnectedId } = R.handleDisconnect(room, "socket-2", 0); // p2 leaves mid-match
   assert.equal(deleted, false);
+  assert.equal(disconnectedId, "p2");
+  assert.equal(after.phase, "over");
+  assert.equal(after.winner, "p1");
+  assert.equal(after.winReason, "opponent_disconnected");
+});
+
+check("disconnect during an active FFA match with 3+ remaining players just vacates the slot and keeps playing", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  room = R.setReady(room, "p1", true);
+  room = R.setReady(room, "p2", true);
+  room = R.setReady(room, "p3", true);
+  room = R.beginMatch(room);
+  assert.equal(room.phase, "active");
+
+  const { room: after, deleted, disconnectedId } = R.handleDisconnect(room, "socket-2", 0); // p2 leaves mid-match
+  assert.equal(deleted, false);
+  assert.equal(disconnectedId, "p2");
+  assert.equal(after.phase, "active", "match should continue -- 2 players are still connected");
+  assert.equal(after.winner, null);
+  assert.equal(after.players.p2, null, "the departed player's slot should be vacated");
+  assert.equal(after.players.p1.socketId, "socket-1", "remaining slots are untouched, not renumbered");
+  assert.equal(after.players.p3.socketId, "socket-3");
+});
+
+check("disconnects during an active FFA match down to the last player ends it in their favor", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  room = R.setReady(room, "p1", true);
+  room = R.setReady(room, "p2", true);
+  room = R.setReady(room, "p3", true);
+  room = R.beginMatch(room);
+
+  ({ room } = R.handleDisconnect(room, "socket-2", 0));
+  assert.equal(room.phase, "active");
+  const { room: after } = R.handleDisconnect(room, "socket-3", 0);
   assert.equal(after.phase, "over");
   assert.equal(after.winner, "p1");
   assert.equal(after.winReason, "opponent_disconnected");
@@ -115,8 +220,9 @@ check("disconnect during an active match ends the WHOLE match in favor of the re
 
 check("disconnect from a socket that isn't actually in the room is a no-op", () => {
   const room = R.createRoom("ABCD", "socket-1");
-  const { room: after, deleted } = R.handleDisconnect(room, "some-other-socket", 0);
+  const { room: after, deleted, disconnectedId } = R.handleDisconnect(room, "some-other-socket", 0);
   assert.equal(deleted, false);
+  assert.equal(disconnectedId, null);
   assert.deepEqual(after, room);
 });
 

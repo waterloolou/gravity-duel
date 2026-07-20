@@ -26,9 +26,14 @@ function lerpAngle(a, b, t) {
 
 function interpolateState(a, b, t) {
   const ships = {};
-  for (const id of Object.keys(a.ships)) {
-    const sa = a.ships[id];
-    const sb = b.ships[id] ?? sa;
+  // Iterate `b` (the newer/target snapshot)'s roster, not `a`'s -- a player
+  // can disconnect mid-match now (free-for-all continues without them), and
+  // building this map from the OLDER snapshot's keys would keep a departed
+  // player's ship rendering forever (frozen at its last known position,
+  // never dropped) since it'd never stop appearing in that key set.
+  for (const id of Object.keys(b.ships)) {
+    const sb = b.ships[id];
+    const sa = a.ships[id] ?? sb; // a ship with no prior snapshot (just spawned) has nothing to interpolate from
     ships[id] = {
       pos: lerp3(sa.pos, sb.pos, t),
       vel: lerp3(sa.vel, sb.vel, t),
@@ -37,12 +42,14 @@ function interpolateState(a, b, t) {
       kills: sb.kills, // scores snap immediately, never interpolate
       invulnerable: sb.invulnerable,
       thrusting: sb.thrusting,
+      heat: lerp(sa.heat, sb.heat, t), // smoothed, so the HUD gauge doesn't visibly step at 30Hz
+      overheated: sb.overheated,
     };
   }
   // Projectiles are numerous and transient; rendering the latest snapshot's
   // raw positions (no interpolation) is a reasonable simplification at 30Hz
   // on localhost -- revisit only if this is ever deployed over real internet.
-  return { tick: b.tick, ships, projectiles: b.projectiles, winner: b.winner };
+  return { tick: b.tick, playerIds: b.playerIds, ships, projectiles: b.projectiles, winner: b.winner };
 }
 
 export function createNetClient(url) {
