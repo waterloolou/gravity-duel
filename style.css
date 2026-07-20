@@ -200,6 +200,81 @@ button.secondary {
   margin: 4px 0 0;
 }
 
+.lobby-hangar-btn {
+  margin-top: 16px;
+}
+
+.hangar-panel {
+  /* Wider than the default .panel -- a 3-card grid needs more room than the
+     home/lobby panels' compact single-column content. */
+  max-width: 720px;
+  text-align: left;
+}
+
+.hangar-panel h2 {
+  text-align: center;
+}
+
+.hangar-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  margin: 0 0 20px;
+}
+
+.hangar-section {
+  margin-bottom: 20px;
+}
+
+.hangar-section h3 {
+  font-size: 0.9rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  margin: 0 0 10px;
+}
+
+.loadout-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.loadout-card {
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.loadout-card.equipped {
+  border-color: var(--accent);
+}
+
+.loadout-name {
+  font-weight: 700;
+}
+
+.loadout-equipped-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+}
+
+.loadout-stats {
+  font-size: 0.8rem;
+  color: var(--muted);
+  flex-grow: 1;
+}
+
+.loadout-card button {
+  align-self: flex-start;
+}
+
 .player-list {
   list-style: none;
   padding: 0;

@@ -11,6 +11,8 @@ export const MSG = {
   LEAVE_ROOM: "leave_room",
   PLAYER_INPUT: "player_input",
   IDENTIFY: "identify",
+  PURCHASE_UNLOCK: "purchase_unlock",
+  EQUIP_LOADOUT: "equip_loadout",
 
   // Server -> Client
   ROOM_CREATED: "room_created",
@@ -30,6 +32,10 @@ export const ERROR_CODES = {
   INVALID_CODE: "INVALID_CODE",
   SERVER_FULL: "SERVER_FULL",
   ALREADY_IN_ROOM: "ALREADY_IN_ROOM",
+  INSUFFICIENT_CURRENCY: "INSUFFICIENT_CURRENCY",
+  ALREADY_UNLOCKED: "ALREADY_UNLOCKED",
+  NOT_UNLOCKED: "NOT_UNLOCKED",
+  UNKNOWN_LOADOUT_ID: "UNKNOWN_LOADOUT_ID",
 };
 
 export const MATCH_STARTING_COUNTDOWN_MS = 3000;

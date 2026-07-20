@@ -30,6 +30,7 @@
       <h2>Play online</h2>
       <button type="button" class="primary" data-quick-play>Play</button>
       <p class="quick-play-hint">Matches you into an open public game, or starts a new one.</p>
+      <button type="button" class="secondary" data-open-hangar>Hangar</button>
       <details class="private-room">
         <summary>Play with a friend instead</summary>
         <button type="button" class="secondary" data-create-room>Create room</button>
@@ -48,6 +49,22 @@
       <p class="status-text" data-lobby-status></p>
       <p class="lobby-hint">Starts once everyone here is ready — 2 to 4 players.</p>
       <div class="countdown-number" data-countdown hidden></div>
+      <button type="button" class="secondary lobby-hangar-btn" data-open-hangar>Hangar</button>
+    </section>
+
+    <section id="view-hangar" class="view panel hangar-panel" hidden>
+      <h2>Hangar</h2>
+      <p class="hangar-hint">Ships and weapons are lateral choices, not power -- pick a playstyle. Progress is tied to this browser and won't survive a server redeploy yet.</p>
+      <div class="hangar-section">
+        <h3>Ships</h3>
+        <div class="loadout-grid" data-ship-grid></div>
+      </div>
+      <div class="hangar-section">
+        <h3>Weapons</h3>
+        <div class="loadout-grid" data-weapon-grid></div>
+      </div>
+      <p class="error-text" data-hangar-error></p>
+      <button type="button" class="secondary" data-hangar-back>Back</button>
     </section>
 
     <section id="view-play" class="view" hidden>

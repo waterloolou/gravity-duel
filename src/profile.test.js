@@ -39,4 +39,59 @@ check("touchLastSeen updates the timestamp without touching anything else", () =
   assert.equal(next.currency, p.currency);
 });
 
+check("purchaseUnlock spends currency and adds the ship/weapon to the unlock list", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 400);
+  const { profile: next, error } = Profile.purchaseUnlock(p, "ship", "juggernaut");
+  assert.equal(error, null);
+  assert.equal(next.currency, 0);
+  assert.deepEqual(next.unlockedShips, ["interceptor", "juggernaut"]);
+});
+
+check("purchaseUnlock rejects insufficient currency and leaves the profile unchanged", () => {
+  const p = Profile.createDefaultProfile("abc"); // 0 currency
+  const { profile: next, error } = Profile.purchaseUnlock(p, "ship", "juggernaut");
+  assert.equal(error, "INSUFFICIENT_CURRENCY");
+  assert.equal(next, p, "should return the exact same reference on failure");
+});
+
+check("purchaseUnlock rejects unlocking something already unlocked", () => {
+  const p = Profile.createDefaultProfile("abc");
+  const { error } = Profile.purchaseUnlock(p, "ship", "interceptor"); // already owned by default
+  assert.equal(error, "ALREADY_UNLOCKED");
+});
+
+check("purchaseUnlock rejects an unknown ship/weapon id", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 9999);
+  const { error } = Profile.purchaseUnlock(p, "ship", "not-a-real-ship");
+  assert.equal(error, "UNKNOWN_LOADOUT_ID");
+});
+
+check("setEquipped switches to an already-unlocked ship/weapon", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 500);
+  ({ profile: p } = Profile.purchaseUnlock(p, "weapon", "railgun"));
+  const { profile: next, error } = Profile.setEquipped(p, undefined, "railgun");
+  assert.equal(error, null);
+  assert.equal(next.equippedWeapon, "railgun");
+  assert.equal(next.equippedShip, "interceptor", "the untouched slot (ship) should be left alone");
+});
+
+check("setEquipped rejects equipping something not yet unlocked", () => {
+  const p = Profile.createDefaultProfile("abc");
+  const { profile: next, error } = Profile.setEquipped(p, "wraith", undefined);
+  assert.equal(error, "NOT_UNLOCKED");
+  assert.equal(next, p);
+});
+
+check("setEquipped applies both slots atomically -- an invalid weapon rejects the ship change too", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 400);
+  ({ profile: p } = Profile.purchaseUnlock(p, "ship", "juggernaut")); // ship IS unlocked...
+  const { profile: next, error } = Profile.setEquipped(p, "juggernaut", "railgun"); // ...but weapon isn't
+  assert.equal(error, "NOT_UNLOCKED");
+  assert.equal(next.equippedShip, "interceptor", "ship slot should not have changed either");
+});
+
 console.log(`\n${passed} profile.js assertions passed`);

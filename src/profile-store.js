@@ -95,3 +95,12 @@ export function awardCurrency(playerId, amount) {
   markDirty();
   return profile;
 }
+
+// Overwrites the stored profile outright -- used after a pure profile.js
+// mutation (purchaseUnlock/setEquipped) has already produced the next
+// profile object; this just commits it and schedules a flush.
+export function set(playerId, profile) {
+  profiles.set(playerId, profile);
+  markDirty();
+  return profile;
+}

@@ -4,6 +4,7 @@ import { createInputController } from "./input.js";
 import { createRenderer } from "./render.js";
 import { createAudioSystem } from "./audio.js";
 import { updateHud } from "./hud.js";
+import { renderHangar } from "./hangar.js";
 
 const net = createNetClient(`ws://${location.host}/ws`);
 const audioSystem = createAudioSystem();
@@ -31,11 +32,29 @@ function getOrCreatePlayerId() {
 const views = {
   home: document.getElementById("view-home"),
   lobby: document.getElementById("view-lobby"),
+  hangar: document.getElementById("view-hangar"),
   play: document.getElementById("view-play"),
 };
 function showView(name) {
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
 }
+
+// The Hangar is reachable from both home and the lobby -- Back should
+// return to wherever it was opened from, not always home (a player mid-
+// queue in a lobby shouldn't get bounced out of it just to check loadouts).
+let hangarReturnView = "home";
+document.querySelectorAll("[data-open-hangar]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    audioSystem.uiClick();
+    hangarReturnView = roomPhase === "lobby" ? "lobby" : "home";
+    showView("hangar");
+    renderHangar(profile, net);
+  });
+});
+document.querySelector("[data-hangar-back]").addEventListener("click", () => {
+  audioSystem.uiClick();
+  showView(hangarReturnView);
+});
 
 const hud = document.getElementById("hud");
 const homeError = document.querySelector("[data-home-error]");
@@ -169,17 +188,23 @@ net.on("_open", () => net.send(MSG.IDENTIFY, { playerId: getOrCreatePlayerId() }
 
 const currencyBadge = document.querySelector("[data-currency-badge]");
 const currencyValueEl = document.querySelector("[data-currency]");
+const hangarErrorEl = document.querySelector("[data-hangar-error]");
 net.on(MSG.PROFILE_STATE, (msg) => {
   profile = msg.profile;
   if (currencyValueEl) currencyValueEl.textContent = String(profile.currency);
   if (currencyBadge) currencyBadge.hidden = false;
+  // Re-render live so a purchase/equip click reflects immediately, without
+  // needing to leave and reopen the Hangar.
+  if (!views.hangar.hidden) renderHangar(profile, net);
 });
 
 net.on(MSG.ROOM_CREATED, (msg) => enterLobby(msg.code, msg.playerNumber));
 net.on(MSG.ROOM_JOINED, (msg) => enterLobby(msg.code, msg.playerNumber));
 
 net.on(MSG.ERROR, (msg) => {
-  homeError.textContent = msg.message ?? "Something went wrong.";
+  const message = msg.message ?? "Something went wrong.";
+  if (!views.hangar.hidden) hangarErrorEl.textContent = message;
+  else homeError.textContent = message;
 });
 
 net.on(MSG.LOBBY_STATE, (msg) => {

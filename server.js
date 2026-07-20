@@ -14,6 +14,7 @@ import { MSG, ERROR_CODES, MATCH_STARTING_COUNTDOWN_MS } from "./protocol.js";
 import * as R from "./src/room.js";
 import * as M from "./src/match.js";
 import * as P from "./src/physics.js";
+import * as Profile from "./src/profile.js";
 import * as ProfileStore from "./src/profile-store.js";
 import * as Loadouts from "./src/loadouts.js";
 
@@ -411,6 +412,28 @@ function handleMessage(socketId, msg) {
       sock.profileId = playerId;
       const profile = ProfileStore.get(playerId);
       send(sock.ws, MSG.PROFILE_STATE, { profile });
+      return;
+    }
+    case MSG.PURCHASE_UNLOCK: {
+      if (!sock.profileId) return;
+      const { profile: next, error } = Profile.purchaseUnlock(ProfileStore.get(sock.profileId), msg.kind, msg.id);
+      if (error) {
+        send(sock.ws, MSG.ERROR, { code: ERROR_CODES[error], message: "Couldn't complete that purchase." });
+        return;
+      }
+      ProfileStore.set(sock.profileId, next);
+      send(sock.ws, MSG.PROFILE_STATE, { profile: next });
+      return;
+    }
+    case MSG.EQUIP_LOADOUT: {
+      if (!sock.profileId) return;
+      const { profile: next, error } = Profile.setEquipped(ProfileStore.get(sock.profileId), msg.shipId, msg.weaponId);
+      if (error) {
+        send(sock.ws, MSG.ERROR, { code: ERROR_CODES[error], message: "Couldn't equip that loadout." });
+        return;
+      }
+      ProfileStore.set(sock.profileId, next);
+      send(sock.ws, MSG.PROFILE_STATE, { profile: next });
       return;
     }
   }
