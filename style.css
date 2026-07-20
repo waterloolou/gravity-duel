@@ -67,6 +67,28 @@ body {
   margin: 0;
 }
 
+.currency-badge {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  margin-top: 10px;
+  padding: 4px 14px;
+  background: var(--accent-soft);
+  border-radius: 999px;
+}
+
+.currency-value {
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.currency-label {
+  font-size: 0.75rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
 .panel {
   background: var(--panel);
   border: 1px solid var(--border);
@@ -117,6 +139,29 @@ button.secondary {
   cursor: pointer;
 }
 
+.quick-play-hint {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin: 10px 0 0;
+}
+
+.private-room {
+  margin-top: 20px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+
+.private-room summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+.private-room[open] summary {
+  margin-bottom: 12px;
+}
+
 .join-row {
   display: flex;
   justify-content: center;
@@ -147,6 +192,12 @@ button.secondary {
   font-size: 1.3rem;
   font-weight: 700;
   min-height: 1.6em;
+}
+
+.lobby-hint {
+  color: var(--muted);
+  font-size: 0.8rem;
+  margin: 4px 0 0;
 }
 
 .player-list {
@@ -210,12 +261,32 @@ button.secondary {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.35);
 }
 
+/* 3-4 player free-for-all scoreboards get more cards in the same panel --
+   shrink the per-card footprint so it still fits comfortably, rather than
+   overflowing the HUD on narrow/mobile screens. */
+.score-panel[data-count="3"],
+.score-panel[data-count="4"] {
+  gap: 12px;
+  padding: 8px 16px;
+}
+
 .score-side {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 4px;
   min-width: 100px;
+}
+
+.score-panel[data-count="3"] .score-side,
+.score-panel[data-count="4"] .score-side {
+  min-width: 64px;
+}
+
+.score-divider {
+  width: 1px;
+  align-self: stretch;
+  background: rgba(255, 255, 255, 0.18);
 }
 
 .score-label {
@@ -315,10 +386,89 @@ button.secondary {
   to { transform: translateX(24px); opacity: 0; }
 }
 
-.controls-hint {
+.hud-bottom {
   align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.controls-hint {
   font-size: 0.8rem;
   opacity: 0.75;
+}
+
+.heat-gauge {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(10, 8, 20, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  border-radius: 999px;
+  padding: 5px 14px;
+}
+
+.heat-gauge-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  opacity: 0.75;
+  min-width: 5.5em; /* fits "OVERHEATED" without the track jumping around */
+}
+
+.heat-gauge-track {
+  width: 120px;
+  height: 6px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+
+.heat-gauge-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 999px;
+  background: #5be8ff;
+  box-shadow: 0 0 6px #5be8ff;
+  transition: background-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.heat-gauge[data-overheated="true"] .heat-gauge-label {
+  color: #ff3d5a;
+  opacity: 1;
+  animation: shield-pulse 0.6s ease-in-out infinite;
+}
+
+.heat-gauge[data-overheated="true"] .heat-gauge-fill {
+  background: #ff3d5a;
+  box-shadow: 0 0 8px #ff3d5a;
+}
+
+.crosshair {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20px;
+  height: 20px;
+  transform: translate(-50%, -50%);
+  border: 1.5px solid rgba(91, 232, 255, 0.8);
+  border-radius: 50%;
+  box-shadow: 0 0 6px rgba(91, 232, 255, 0.5);
+}
+
+.crosshair::before {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  background: rgba(91, 232, 255, 0.95);
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
 }
 
 .damage-flash {

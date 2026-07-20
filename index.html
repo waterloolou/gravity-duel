@@ -20,15 +20,24 @@
     <header class="app-header">
       <h1>Gravity Duel</h1>
       <p class="tagline">Your shots curve under real gravity. Aim around the well, or through it.</p>
+      <div class="currency-badge" data-currency-badge hidden>
+        <span class="currency-value" data-currency>0</span>
+        <span class="currency-label">credits</span>
+      </div>
     </header>
 
     <section id="view-home" class="view panel">
       <h2>Play online</h2>
-      <button type="button" class="primary" data-create-room>Create room</button>
-      <div class="join-row">
-        <input type="text" maxlength="4" placeholder="CODE" data-join-code-input autocomplete="off" />
-        <button type="button" class="secondary" data-join-room>Join room</button>
-      </div>
+      <button type="button" class="primary" data-quick-play>Play</button>
+      <p class="quick-play-hint">Matches you into an open public game, or starts a new one.</p>
+      <details class="private-room">
+        <summary>Play with a friend instead</summary>
+        <button type="button" class="secondary" data-create-room>Create room</button>
+        <div class="join-row">
+          <input type="text" maxlength="4" placeholder="CODE" data-join-code-input autocomplete="off" />
+          <button type="button" class="secondary" data-join-room>Join room</button>
+        </div>
+      </details>
       <p class="error-text" data-home-error></p>
     </section>
 
@@ -37,30 +46,28 @@
       <ul class="player-list" data-player-list></ul>
       <button type="button" class="primary" data-ready-btn>Ready</button>
       <p class="status-text" data-lobby-status></p>
+      <p class="lobby-hint">Starts once everyone here is ready — 2 to 4 players.</p>
       <div class="countdown-number" data-countdown hidden></div>
     </section>
 
     <section id="view-play" class="view" hidden>
       <canvas id="scene"></canvas>
       <div class="damage-flash" data-damage-flash></div>
-      <div id="hud" data-connection="disconnected" data-self-id="" data-self-kills="0" data-opp-kills="0"
+      <div id="hud" data-connection="disconnected" data-self-id=""
            data-self-invulnerable="false" data-match-status="" data-winner="" data-room-code-hud="">
         <div class="hud-top">
-          <div class="score-panel" data-score-panel>
-            <div class="score-side self">
-              <span class="score-label">You</span>
-              <div class="kill-pips" data-self-pips></div>
-            </div>
-            <span class="score-vs">VS</span>
-            <div class="score-side opp">
-              <span class="score-label">Opponent</span>
-              <div class="kill-pips" data-opp-pips></div>
-            </div>
-          </div>
+          <div class="score-panel" data-score-panel></div>
           <div class="shield-badge" data-shield-badge hidden>⛊ SHIELDED</div>
         </div>
         <div class="kill-feed" data-kill-feed></div>
-        <div class="controls-hint">Mouse to aim · W to thrust · Click to fire · C to toggle camera</div>
+        <div class="hud-bottom">
+          <div class="heat-gauge" data-heat-gauge>
+            <span class="heat-gauge-label" data-heat-label>ENGINE</span>
+            <div class="heat-gauge-track"><div class="heat-gauge-fill" data-heat-fill></div></div>
+          </div>
+          <div class="controls-hint">Mouse to aim · W to thrust · Click to fire · C to toggle camera</div>
+        </div>
+        <div class="crosshair" data-crosshair></div>
         <div class="match-over-banner" data-match-over-banner hidden>
           <p class="match-over-title" data-match-over-text></p>
           <p class="match-over-score" data-match-over-score></p>

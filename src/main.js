@@ -12,6 +12,21 @@ let selfId = null;
 let roomPhase = "home";
 let winner = null;
 let winReason = null;
+let profile = null;
+
+// No accounts -- this id is just "which save file to load" for currency and
+// (later) ship/weapon unlocks, generated once per browser and reused on
+// every reconnect. Clearing site data or switching browsers starts fresh;
+// that's an accepted tradeoff of staying anonymous, not a bug.
+function getOrCreatePlayerId() {
+  const KEY = "gravityDuel.playerId";
+  let id = localStorage.getItem(KEY);
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem(KEY, id);
+  }
+  return id;
+}
 
 const views = {
   home: document.getElementById("view-home"),
@@ -55,18 +70,32 @@ function triggerDamageFlash() {
   damageFlashEl.classList.add("active");
 }
 
+// "Opponent" only reads unambiguously in a 1v1 -- with up to 3 other players
+// in a free-for-all, kill-feed lines need to say WHICH one.
+function playerLabel(id) {
+  return id === selfId ? "You" : id.toUpperCase();
+}
+
 function buildKillFeedMessage(ev) {
   const isSelfVictim = ev.victimId === selfId;
+  const victim = playerLabel(ev.victimId);
   if (ev.event === "well_death") {
-    return isSelfVictim ? "You were pulled into the well." : "Opponent was pulled into the well.";
+    return isSelfVictim ? "You were pulled into the well." : `${victim} was pulled into the well.`;
   }
   if (ev.event === "moon_death") {
-    return isSelfVictim ? "You crashed into a moon." : "Opponent crashed into a moon.";
+    return isSelfVictim ? "You crashed into a moon." : `${victim} crashed into a moon.`;
   }
   if (isSelfVictim) return "You were eliminated.";
-  if (ev.killerId === selfId) return "You eliminated your opponent!";
-  return "Opponent scored a kill.";
+  if (ev.killerId === selfId) return `You eliminated ${victim}!`;
+  return `${playerLabel(ev.killerId)} eliminated ${victim}.`;
 }
+
+document.querySelector("[data-quick-play]").addEventListener("click", () => {
+  audioSystem.resume();
+  audioSystem.uiClick();
+  homeError.textContent = "";
+  net.send(MSG.QUICK_JOIN);
+});
 
 document.querySelector("[data-create-room]").addEventListener("click", () => {
   audioSystem.resume();
@@ -89,9 +118,9 @@ document.querySelector("[data-join-room]").addEventListener("click", () => {
 
 readyBtn.addEventListener("click", () => {
   // Guard client-side against the exact bug that caused P1 to get
-  // permanently stuck: clicking Ready before a second player has joined.
-  // The server only accepts SET_READY once the room has two players (see
-  // room.js's setReady, gated to the "full-not-ready" phase) and silently
+  // permanently stuck: clicking Ready before at least one other player has
+  // joined. The server only accepts SET_READY once the room has 2+ players
+  // (see room.js's setReady, gated on MIN_PLAYERS_TO_START) and silently
   // no-ops otherwise -- but this button was unconditionally disabling
   // itself on click regardless, so an early click left the button
   // disabled forever with no way to actually register as ready once a
@@ -128,9 +157,23 @@ function enterLobby(code, playerNumber) {
   // still land the exact stuck-forever click this whole guard exists to
   // prevent.
   readyBtn.disabled = true;
-  lobbyStatusEl.textContent = "Waiting for a second player…";
+  lobbyStatusEl.textContent = "Waiting for at least one more player…";
   updateHud(hud, { connection: "connected", selfId, roomPhase });
 }
+
+// Fires once the socket actually reaches OPEN -- net.js's send() silently
+// drops anything sent before that (no queue), so this is structurally
+// guaranteed to be the first message this connection ever sends, which is
+// exactly what the server assumes (see server.js's IDENTIFY handler).
+net.on("_open", () => net.send(MSG.IDENTIFY, { playerId: getOrCreatePlayerId() }));
+
+const currencyBadge = document.querySelector("[data-currency-badge]");
+const currencyValueEl = document.querySelector("[data-currency]");
+net.on(MSG.PROFILE_STATE, (msg) => {
+  profile = msg.profile;
+  if (currencyValueEl) currencyValueEl.textContent = String(profile.currency);
+  if (currencyBadge) currencyBadge.hidden = false;
+});
 
 net.on(MSG.ROOM_CREATED, (msg) => enterLobby(msg.code, msg.playerNumber));
 net.on(MSG.ROOM_JOINED, (msg) => enterLobby(msg.code, msg.playerNumber));
@@ -157,7 +200,7 @@ net.on(MSG.LOBBY_STATE, (msg) => {
   const self = msg.players.find((p) => p.playerNumber === selfId);
   if (playersInRoom < 2) {
     readyBtn.disabled = true;
-    lobbyStatusEl.textContent = "Waiting for a second player…";
+    lobbyStatusEl.textContent = "Waiting for at least one more player…";
   } else if (self?.ready) {
     readyBtn.disabled = true;
     lobbyStatusEl.textContent = "";
@@ -196,7 +239,7 @@ net.on(MSG.MATCH_STARTING, (msg) => {
 });
 
 let latestSelf = null;
-let latestOpponent = null;
+let latestShips = null; // full snapshot (all players, self included), for looking up any victim's position
 let latestTick = 0;
 let gameRenderer = null;
 
@@ -210,14 +253,17 @@ net.on(MSG.MATCH_EVENT, (msg) => {
       triggerDamageFlash();
       gameRenderer?.triggerShake(0.6);
     } else {
-      if (latestOpponent) {
-        gameRenderer?.spawnExplosion(
-          { x: latestOpponent.pos[0], y: latestOpponent.pos[1], z: latestOpponent.pos[2] },
-          0xffaa55
-        );
+      const victim = latestShips?.[msg.victimId];
+      if (victim) {
+        gameRenderer?.spawnExplosion({ x: victim.pos[0], y: victim.pos[1], z: victim.pos[2] }, 0xffaa55);
       }
       if (msg.event === "hit" && msg.killerId === selfId) gameRenderer?.triggerShake(0.25);
     }
+    return;
+  }
+
+  if (msg.event === "player_left") {
+    pushKillFeed(`${msg.playerId.toUpperCase()} disconnected.`);
     return;
   }
 
@@ -227,13 +273,14 @@ net.on(MSG.MATCH_EVENT, (msg) => {
     winReason = msg.reason ?? "won";
     const youWon = winner === selfId;
 
-    matchOverText.textContent = youWon ? "VICTORY" : "DEFEAT";
+    matchOverText.textContent = youWon ? "VICTORY" : winner ? "DEFEAT" : "MATCH OVER";
     let scoreLine;
     if (winReason === "opponent_disconnected") {
-      scoreLine = youWon ? "Your opponent disconnected." : "You disconnected — match forfeited.";
-    } else if (msg.finalScore && selfId) {
-      const oppId = selfId === "p1" ? "p2" : "p1";
-      scoreLine = `Final score — You ${msg.finalScore[selfId]} : ${msg.finalScore[oppId]} Opponent`;
+      scoreLine = youWon ? "Everyone else disconnected." : winner ? "You disconnected — match forfeited." : "Everyone disconnected.";
+    } else if (msg.finalScore) {
+      scoreLine = Object.entries(msg.finalScore)
+        .map(([id, kills]) => `${playerLabel(id)} ${kills}`)
+        .join(" · ");
     } else {
       scoreLine = "";
     }
@@ -281,7 +328,7 @@ function startGameLoop() {
   // (setAim/setInput) with read access to the authoritative self-ship state,
   // so an external script can drive a closed-loop maneuver (e.g. home in on
   // a known target position) without needing DOM/canvas pixel inspection.
-  window.__testHooks.debugState = () => ({ self: latestSelf, opponent: latestOpponent, tick: latestTick, inputState: input.getState() });
+  window.__testHooks.debugState = () => ({ self: latestSelf, ships: latestShips, tick: latestTick, inputState: input.getState() });
 
   function loop() {
     requestAnimationFrame(loop);
@@ -316,15 +363,13 @@ function startGameLoop() {
     renderer.setLocalThrust(inputState.thrusting);
 
     if (snap && selfId) {
-      const opponentId = selfId === "p1" ? "p2" : "p1";
-      const opp = snap.ships[opponentId];
-      latestOpponent = opp;
+      latestShips = snap.ships;
       latestTick = snap.tick;
       if (self) {
         renderer.updateCamera(self, inputState.thirdPerson, inputState.thrusting);
         renderer.updateTrajectoryPreview(self, inputState.thrusting, snap.tick);
       }
-      if (opp) renderer.updateOpponent(opp);
+      renderer.updateOpponents(snap.ships, selfId);
       renderer.updateProjectiles(snap.projectiles, selfId, () => audioSystem.fire());
       renderer.updateMoons(snap.tick);
       updateHud(hud, { connection: "connected", selfId, matchState: snap, roomPhase, winner });

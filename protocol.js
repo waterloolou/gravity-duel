@@ -6,9 +6,11 @@ export const MSG = {
   // Client -> Server
   CREATE_ROOM: "create_room",
   JOIN_ROOM: "join_room",
+  QUICK_JOIN: "quick_join",
   SET_READY: "set_ready",
   LEAVE_ROOM: "leave_room",
   PLAYER_INPUT: "player_input",
+  IDENTIFY: "identify",
 
   // Server -> Client
   ROOM_CREATED: "room_created",
@@ -18,6 +20,7 @@ export const MSG = {
   MATCH_STARTING: "match_starting",
   MATCH_STATE: "match_state",
   MATCH_EVENT: "match_event",
+  PROFILE_STATE: "profile_state",
 };
 
 export const ERROR_CODES = {

@@ -1,7 +1,7 @@
 {
   "name": "gravity-duel",
   "version": "0.1.0",
-  "description": "A real-time 2-player 3D space duel where shots curve under real gravity.",
+  "description": "A real-time 2-4 player 3D free-for-all where shots curve under real gravity.",
   "type": "module",
   "private": true,
   "dependencies": {
@@ -9,6 +9,6 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node src/physics.test.js && node src/match.test.js && node src/room.test.js && node src/input.test.js"
+    "test": "node src/physics.test.js && node src/match.test.js && node src/room.test.js && node src/input.test.js && node src/profile.test.js"
   }
 }

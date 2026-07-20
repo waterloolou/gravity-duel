@@ -14,9 +14,17 @@ import { MSG, ERROR_CODES, MATCH_STARTING_COUNTDOWN_MS } from "./protocol.js";
 import * as R from "./src/room.js";
 import * as M from "./src/match.js";
 import * as P from "./src/physics.js";
+import * as ProfileStore from "./src/profile-store.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8892;
+
+// Currency rewards -- tunable, not balanced-forever constants. Every other
+// SURVIVING participant (not just the winner) still gets something so a
+// loss isn't a total dead end for progress.
+const KILL_CURRENCY_REWARD = 10;
+const MATCH_WIN_CURRENCY_REWARD = 50;
+const MATCH_PARTICIPATION_CURRENCY_REWARD = 15;
 
 const MIME_TYPES = {
   ".html": "text/html; charset=utf-8",
@@ -73,7 +81,7 @@ function send(ws, type, payload = {}) {
 }
 
 function broadcastToRoom(entry, type, payload = {}) {
-  for (const pid of ["p1", "p2"]) {
+  for (const pid of R.PLAYER_SLOTS) {
     const player = entry.room.players[pid];
     if (!player?.connected) continue;
     const sock = sockets.get(player.socketId);
@@ -84,10 +92,23 @@ function broadcastToRoom(entry, type, payload = {}) {
 function lobbyStatePayload(room) {
   return {
     code: room.code,
-    players: ["p1", "p2"]
-      .filter((pid) => room.players[pid])
-      .map((pid) => ({ playerNumber: pid, connected: room.players[pid].connected, ready: room.players[pid].ready })),
+    players: R.activePlayerIds(room).map((pid) => ({ playerNumber: pid, connected: room.players[pid].connected, ready: room.players[pid].ready })),
   };
+}
+
+// A pre-match disconnect can renumber the remaining players' slots (room.js
+// compacts them down to a contiguous p1... prefix) -- without this, a
+// remaining socket's own `sock.playerId` would go stale, and its next
+// SET_READY/PLAYER_INPUT would be keyed to a slot that's no longer theirs
+// (or is now someone else's). Cheap to just recompute for every seat after
+// any disconnect, active match or not.
+function reconcilePlayerIdsForRoom(code) {
+  const entry = rooms.get(code);
+  if (!entry) return;
+  for (const pid of R.activePlayerIds(entry.room)) {
+    const sock = sockets.get(entry.room.players[pid].socketId);
+    if (sock) sock.playerId = pid;
+  }
 }
 
 function broadcastLobbyState(code) {
@@ -97,6 +118,19 @@ function broadcastLobbyState(code) {
 
 function neutralInput(ship) {
   return { aimYaw: ship.yaw, aimPitch: ship.pitch, thrusting: false, firing: false };
+}
+
+// Awards currency to whoever holds a given room seat (e.g. "p2"), keyed
+// through to their persistent profile via their socket's profileId -- not
+// everyone identifies before playing (or plays in a second tab), so this is
+// a no-op rather than an error when there's nothing to credit.
+function awardCurrencyToSeat(entry, seatId, amount) {
+  const seat = entry.room.players[seatId];
+  if (!seat) return;
+  const sock = sockets.get(seat.socketId);
+  if (!sock?.profileId) return;
+  const profile = ProfileStore.awardCurrency(sock.profileId, amount);
+  send(sock.ws, MSG.PROFILE_STATE, { profile });
 }
 
 function beginMatch(code) {
@@ -112,8 +146,10 @@ function beginMatch(code) {
   // state. Confirmed reachable via a real disconnect-during-countdown case,
   // not just a hypothetical race.
   if (entry.room.phase !== "active") return;
-  entry.matchState = M.createMatchState();
-  entry.inputs = { p1: neutralInput(entry.matchState.ships.p1), p2: neutralInput(entry.matchState.ships.p2) };
+  const activeIds = R.activePlayerIds(entry.room);
+  entry.matchState = M.createMatchState(activeIds);
+  entry.inputs = {};
+  for (const id of activeIds) entry.inputs[id] = neutralInput(entry.matchState.ships[id]);
   startTickLoop(code);
 }
 
@@ -128,10 +164,13 @@ function serializeMatchState(state, now) {
       kills: s.kills,
       invulnerable: now < s.invulnerableUntil,
       thrusting: !!s.thrusting,
+      heat: s.heat,
+      overheated: !!s.overheated,
     };
   }
   return {
     tick: state.tick,
+    playerIds: state.playerIds,
     ships,
     projectiles: state.projectiles.map((p) => ({
       id: p.id,
@@ -165,12 +204,19 @@ function startTickLoop(code) {
       const nowSec = Date.now() / 1000;
       const { state, events } = M.stepMatch(entry.matchState, entry.inputs, P.TICK_DT, nowSec);
       entry.matchState = state;
-      for (const ev of events) broadcastToRoom(entry, MSG.MATCH_EVENT, ev);
+      for (const ev of events) {
+        broadcastToRoom(entry, MSG.MATCH_EVENT, ev);
+        if (ev.event === "hit") awardCurrencyToSeat(entry, ev.killerId, KILL_CURRENCY_REWARD);
+      }
 
       if (state.winner) {
         entry.room = R.recordMatchOver(entry.room, state.winner, "won");
         clearInterval(entry.tickTimer);
         entry.tickTimer = null;
+        awardCurrencyToSeat(entry, state.winner, MATCH_WIN_CURRENCY_REWARD);
+        for (const id of state.playerIds) {
+          if (id !== state.winner) awardCurrencyToSeat(entry, id, MATCH_PARTICIPATION_CURRENCY_REWARD);
+        }
       }
     }
 
@@ -184,7 +230,8 @@ function handleDisconnectSocket(socketId) {
   const entry = rooms.get(sock.roomCode);
   if (!entry) return;
 
-  const { room, deleted } = R.handleDisconnect(entry.room, socketId, Date.now() / 1000);
+  const wasActive = entry.room.phase === "active";
+  const { room, deleted, disconnectedId } = R.handleDisconnect(entry.room, socketId, Date.now() / 1000);
   // A pending "starting" countdown timer must be cancelled on ANY disconnect
   // that reverts the room out of "starting", not just when the room is
   // deleted outright -- otherwise a disconnect-during-countdown leaves a
@@ -198,16 +245,57 @@ function handleDisconnectSocket(socketId) {
   if (deleted) {
     if (entry.tickTimer) clearInterval(entry.tickTimer);
     rooms.delete(sock.roomCode);
-  } else {
-    entry.room = room;
-    if (room.phase === "over" && entry.tickTimer) {
-      clearInterval(entry.tickTimer);
-      entry.tickTimer = null;
-      broadcastToRoom(entry, MSG.MATCH_EVENT, { event: "match_over", winnerId: room.winner, reason: room.winReason });
-    } else if (room.phase === "waiting") {
-      broadcastLobbyState(sock.roomCode);
-    }
+    return;
   }
+
+  entry.room = room;
+  reconcilePlayerIdsForRoom(sock.roomCode);
+
+  if (wasActive && room.phase === "active") {
+    // Free-for-all continues with fewer players -- drop their ship from the
+    // live sim and let everyone remaining know why an opponent just vanished.
+    entry.matchState = M.removePlayer(entry.matchState, disconnectedId);
+    broadcastToRoom(entry, MSG.MATCH_EVENT, { event: "player_left", playerId: disconnectedId });
+  } else if (room.phase === "over" && entry.tickTimer) {
+    clearInterval(entry.tickTimer);
+    entry.tickTimer = null;
+    broadcastToRoom(entry, MSG.MATCH_EVENT, { event: "match_over", winnerId: room.winner, reason: room.winReason });
+    if (room.winner) awardCurrencyToSeat(entry, room.winner, MATCH_WIN_CURRENCY_REWARD);
+  } else if (room.phase === "waiting") {
+    broadcastLobbyState(sock.roomCode);
+  }
+}
+
+// Shared by CREATE_ROOM and the "no joinable room" branch of QUICK_JOIN.
+function createNewRoom(socketId, sock) {
+  const code = R.generateRoomCode((c) => rooms.has(c));
+  if (!code) {
+    send(sock.ws, MSG.ERROR, { code: ERROR_CODES.SERVER_FULL, message: "Could not allocate a room code, try again." });
+    return;
+  }
+  const room = R.createRoom(code, socketId);
+  rooms.set(code, { room, matchState: null, inputs: {}, tickTimer: null, startTimer: null });
+  sock.roomCode = code;
+  sock.playerId = "p1";
+  send(sock.ws, MSG.ROOM_CREATED, { code, playerNumber: "p1" });
+  broadcastLobbyState(code);
+}
+
+// Shared by JOIN_ROOM and the "found a joinable room" branch of QUICK_JOIN.
+// Assumes `code` names a room that actually exists (callers already know
+// this: JOIN_ROOM just looked it up, QUICK_JOIN just picked it from `rooms`).
+function joinExistingRoom(code, socketId, sock) {
+  const entry = rooms.get(code);
+  const { room, error, playerId } = R.joinRoom(entry.room, socketId);
+  if (error) {
+    send(sock.ws, MSG.ERROR, { code: error, message: "That room can't be joined right now." });
+    return;
+  }
+  entry.room = room;
+  sock.roomCode = code;
+  sock.playerId = playerId;
+  send(sock.ws, MSG.ROOM_JOINED, { code, playerNumber: playerId });
+  broadcastLobbyState(code);
 }
 
 function handleMessage(socketId, msg) {
@@ -225,17 +313,7 @@ function handleMessage(socketId, msg) {
         send(sock.ws, MSG.ERROR, { code: ERROR_CODES.ALREADY_IN_ROOM, message: "You're already in a room." });
         return;
       }
-      const code = R.generateRoomCode((c) => rooms.has(c));
-      if (!code) {
-        send(sock.ws, MSG.ERROR, { code: ERROR_CODES.SERVER_FULL, message: "Could not allocate a room code, try again." });
-        return;
-      }
-      const room = R.createRoom(code, socketId);
-      rooms.set(code, { room, matchState: null, inputs: {}, tickTimer: null, startTimer: null });
-      sock.roomCode = code;
-      sock.playerId = "p1";
-      send(sock.ws, MSG.ROOM_CREATED, { code, playerNumber: "p1" });
-      broadcastLobbyState(code);
+      createNewRoom(socketId, sock);
       return;
     }
     case MSG.JOIN_ROOM: {
@@ -244,21 +322,27 @@ function handleMessage(socketId, msg) {
         return;
       }
       const code = String(msg.code || "").toUpperCase();
-      const entry = rooms.get(code);
-      if (!entry) {
+      if (!rooms.has(code)) {
         send(sock.ws, MSG.ERROR, { code: ERROR_CODES.ROOM_NOT_FOUND, message: "No room with that code." });
         return;
       }
-      const { room, error } = R.joinRoom(entry.room, socketId);
-      if (error) {
-        send(sock.ws, MSG.ERROR, { code: error, message: "That room can't be joined right now." });
+      joinExistingRoom(code, socketId, sock);
+      return;
+    }
+    case MSG.QUICK_JOIN: {
+      // Public matchmaking: join whichever room is already sitting there
+      // waiting for an opponent, or spin up a fresh one if the server has
+      // none right now. No room code involved on either side.
+      if (sock.roomCode) {
+        send(sock.ws, MSG.ERROR, { code: ERROR_CODES.ALREADY_IN_ROOM, message: "You're already in a room." });
         return;
       }
-      entry.room = room;
-      sock.roomCode = code;
-      sock.playerId = "p2";
-      send(sock.ws, MSG.ROOM_JOINED, { code, playerNumber: "p2" });
-      broadcastLobbyState(code);
+      const target = R.findJoinableRoom(Array.from(rooms.values(), (entry) => entry.room));
+      if (target) {
+        joinExistingRoom(target.code, socketId, sock);
+      } else {
+        createNewRoom(socketId, sock);
+      }
       return;
     }
     case MSG.SET_READY: {
@@ -301,12 +385,26 @@ function handleMessage(socketId, msg) {
       sock.playerId = null;
       return;
     }
+    case MSG.IDENTIFY: {
+      // The client generates and locally persists this id (localStorage) --
+      // there's no auth, so it's really just "which save file to load", not
+      // a credential the server can verify. Never echo another socket's
+      // profileId into any broadcast payload (LOBBY_STATE/MATCH_STATE stay
+      // on room-seat ids p1-p4 only) -- unlike a room code, this id is
+      // long-lived and controls real progress, not just one match.
+      const playerId = String(msg.playerId || "");
+      if (!playerId) return;
+      sock.profileId = playerId;
+      const profile = ProfileStore.get(playerId);
+      send(sock.ws, MSG.PROFILE_STATE, { profile });
+      return;
+    }
   }
 }
 
 wss.on("connection", (ws) => {
   const socketId = crypto.randomUUID();
-  sockets.set(socketId, { ws, roomCode: null, playerId: null });
+  sockets.set(socketId, { ws, roomCode: null, playerId: null, profileId: null });
   ws.isAlive = true;
   ws.on("pong", () => {
     ws.isAlive = true;
@@ -340,6 +438,20 @@ setInterval(() => {
   }
 }, 15000);
 
+ProfileStore.load();
+
+// Render (and most PaaS hosts) send SIGTERM on redeploy/scale-down -- flush
+// whatever's pending so a shutdown mid-match doesn't lose the last few
+// seconds of earned currency on top of the deploy already wiping the disk.
+process.on("SIGTERM", () => {
+  ProfileStore.flushSync();
+  process.exit(0);
+});
+process.on("SIGINT", () => {
+  ProfileStore.flushSync();
+  process.exit(0);
+});
+
 httpServer.listen(PORT, () => {
-  console.log(`Gravity Duel running at http://localhost:${PORT}`);
+  console.log(`Gravity Duel listening on port ${PORT}`);
 });
