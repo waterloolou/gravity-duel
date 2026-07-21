@@ -6,6 +6,13 @@ import { createAudioSystem } from "./audio.js";
 import { updateHud } from "./hud.js";
 import { renderHangar } from "./hangar.js";
 
+// Registered for PWA installability (Add to Home Screen), not offline play
+// -- see sw.js's own comment for why this game specifically shouldn't try
+// to cache/serve itself offline.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+}
+
 const net = createNetClient(`ws://${location.host}/ws`);
 const audioSystem = createAudioSystem();
 

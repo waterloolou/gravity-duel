@@ -478,11 +478,13 @@ button.secondary:disabled {
   background: #05050a;
 }
 
-@media (pointer: coarse) {
-  /* A 16:10 box on a tall phone viewport leaves most of the screen as
-     unused page below it (confirmed visually) -- touch devices get a
-     portrait-friendly height instead, since there's no reason the play
-     area needs to stay letterboxed the way a desktop browser window does. */
+@media (pointer: coarse) and (orientation: portrait) {
+  /* A 16:10 box on a tall PORTRAIT phone viewport leaves most of the screen
+     as unused page below it (confirmed visually) -- scoped to portrait
+     specifically because in landscape the viewport is already wide/short,
+     so the default 16:10 box already fills it reasonably; overriding to
+     72vh of a landscape phone's much SHORTER viewport height would make it
+     smaller, not bigger. */
   #view-play {
     aspect-ratio: auto;
     height: 72vh;
