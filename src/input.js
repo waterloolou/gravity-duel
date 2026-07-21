@@ -1,9 +1,17 @@
-// Pointer-lock mouse-look input (yaw/pitch, no roll) + W-thrust + click-fire.
-// `applyMouseDelta` is kept as a small pure function (no DOM) so it's
-// unit-testable on its own, same discipline as physics.js.
+// Pointer-lock mouse-look input (yaw/pitch, no roll) + W-thrust + click-fire,
+// plus a touch equivalent (drag-to-aim + on-screen thrust/fire/camera
+// buttons, see main.js's touch control overlay) for phones. `applyMouseDelta`
+// is kept as a small pure function (no DOM) so it's unit-testable on its
+// own, same discipline as physics.js -- touch dragging reuses this exact
+// function rather than duplicating the yaw/pitch math.
 
 export const MAX_PITCH = 1.4835; // ~85 degrees, avoids the FPS-camera gimbal issue at the poles
 export const MOUSE_SENSITIVITY = 0.0025;
+// Higher than mouse sensitivity: pointer-lock mouse movement is effectively
+// unbounded (the OS cursor never runs out of room), but a touch drag is
+// bounded by the physical screen, so each pixel needs to carry more turn to
+// keep a comfortable full-range swipe within thumb's reach.
+export const TOUCH_SENSITIVITY = 0.006;
 
 export function applyMouseDelta(state, dx, dy, sensitivity = MOUSE_SENSITIVITY, maxPitch = MAX_PITCH) {
   return {
@@ -50,6 +58,56 @@ export function createInputController(canvas) {
     if (e.code === "KeyW") thrusting = false;
   });
 
+  // Touch: dragging anywhere on the canvas aims (same yaw/pitch model as
+  // mouse-look, fed touch-move deltas instead of pointer-lock movementX/Y --
+  // touch events don't provide a delta natively, so the previous point is
+  // tracked by hand). Thrust/fire/camera come from the dedicated on-screen
+  // buttons in main.js's touch overlay via setThrusting/setFiring/
+  // toggleCamera below, not from this drag -- dragging is aim-only, so a
+  // second finger can hold a button while the first keeps aiming.
+  let aimTouchId = null;
+  let lastTouchX = 0;
+  let lastTouchY = 0;
+
+  canvas.addEventListener(
+    "touchstart",
+    (e) => {
+      if (aimTouchId !== null) return; // already tracking a drag -- ignore extra touches (they're for the buttons)
+      const touch = e.changedTouches[0];
+      aimTouchId = touch.identifier;
+      lastTouchX = touch.clientX;
+      lastTouchY = touch.clientY;
+      e.preventDefault(); // suppresses the synthetic mousedown/click a touch would otherwise also fire
+    },
+    { passive: false }
+  );
+
+  canvas.addEventListener(
+    "touchmove",
+    (e) => {
+      for (const touch of e.changedTouches) {
+        if (touch.identifier !== aimTouchId) continue;
+        const dx = touch.clientX - lastTouchX;
+        const dy = touch.clientY - lastTouchY;
+        lastTouchX = touch.clientX;
+        lastTouchY = touch.clientY;
+        const next = applyMouseDelta({ yaw: aimYaw, pitch: aimPitch }, dx, dy, TOUCH_SENSITIVITY);
+        aimYaw = next.yaw;
+        aimPitch = next.pitch;
+      }
+      e.preventDefault();
+    },
+    { passive: false }
+  );
+
+  function releaseAimTouch(e) {
+    for (const touch of e.changedTouches) {
+      if (touch.identifier === aimTouchId) aimTouchId = null;
+    }
+  }
+  canvas.addEventListener("touchend", releaseAimTouch);
+  canvas.addEventListener("touchcancel", releaseAimTouch);
+
   // Test-only escape hatch: Playwright drives this directly via page.evaluate(),
   // bypassing native pointer-lock/mouse-event simulation entirely (a known
   // source of flakiness for headless browser automation). applyMouseDelta's
@@ -79,5 +137,18 @@ export function createInputController(canvas) {
     aimPitch = pitch;
   }
 
-  return { getState, setInitialAim };
+  // Real (not test-only) input sources, used by main.js's touch button
+  // overlay -- a held-down THRUST/FIRE button behaves exactly like holding
+  // W / left-click, and CAM toggles the same thirdPerson flag as the C key.
+  function setThrusting(value) {
+    thrusting = !!value;
+  }
+  function setFiring(value) {
+    firing = !!value;
+  }
+  function toggleCamera() {
+    thirdPerson = !thirdPerson;
+  }
+
+  return { getState, setInitialAim, setThrusting, setFiring, toggleCamera };
 }

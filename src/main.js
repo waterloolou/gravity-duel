@@ -329,6 +329,48 @@ net.on(MSG.MATCH_STATE, () => {
 
 net.connect();
 
+// The on-screen THRUST/FIRE/CAM buttons (see index.html's .touch-controls,
+// CSS-gated to touch-primary devices via (pointer: coarse)) -- wired
+// unconditionally here regardless of whether they're currently visible,
+// same as the rest of input.js's listeners, since there's no harm in a
+// hidden button never receiving a touch.
+function wireTouchControls(input) {
+  function bindHold(selector, onStart, onEnd) {
+    const btn = document.querySelector(selector);
+    if (!btn) return;
+    btn.addEventListener(
+      "touchstart",
+      (e) => {
+        e.preventDefault(); // suppresses the synthetic mousedown/click a touch would otherwise also fire
+        audioSystem.resume();
+        onStart();
+      },
+      { passive: false }
+    );
+    const release = (e) => {
+      e.preventDefault();
+      onEnd();
+    };
+    btn.addEventListener("touchend", release);
+    btn.addEventListener("touchcancel", release);
+  }
+
+  bindHold("[data-touch-thrust]", () => input.setThrusting(true), () => input.setThrusting(false));
+  bindHold("[data-touch-fire]", () => input.setFiring(true), () => input.setFiring(false));
+
+  const camBtn = document.querySelector("[data-touch-cam]");
+  camBtn?.addEventListener(
+    "touchstart",
+    (e) => {
+      e.preventDefault();
+      audioSystem.resume();
+      audioSystem.uiClick();
+      input.toggleCamera();
+    },
+    { passive: false }
+  );
+}
+
 function startGameLoop() {
   const canvas = document.getElementById("scene");
   // The canvas's drawing-buffer size must be set BEFORE constructing the
@@ -336,6 +378,7 @@ function startGameLoop() {
   // before this runs, so the canvas has no meaningful CSS-derived size yet.
   sizeCanvasFromLayout(canvas);
   const input = createInputController(canvas);
+  wireTouchControls(input);
   const renderer = createRenderer(canvas);
   gameRenderer = renderer;
   renderer.resize();
@@ -344,6 +387,10 @@ function startGameLoop() {
     renderer.resize();
   });
   canvas.addEventListener("click", () => audioSystem.resume());
+  // A touch-drag on the canvas (input.js's own touchstart) calls
+  // preventDefault(), which suppresses the synthetic click the line above
+  // relies on -- so touch needs its own explicit resume-on-first-touch.
+  canvas.addEventListener("touchstart", () => audioSystem.resume(), { passive: true });
 
   let lastInputSend = 0;
   const inputIntervalMs = 1000 / 30;

@@ -478,6 +478,17 @@ button.secondary:disabled {
   background: #05050a;
 }
 
+@media (pointer: coarse) {
+  /* A 16:10 box on a tall phone viewport leaves most of the screen as
+     unused page below it (confirmed visually) -- touch devices get a
+     portrait-friendly height instead, since there's no reason the play
+     area needs to stay letterboxed the way a desktop browser window does. */
+  #view-play {
+    aspect-ratio: auto;
+    height: 72vh;
+  }
+}
+
 #scene {
   display: block;
   width: 100%;
@@ -655,6 +666,17 @@ button.secondary:disabled {
   opacity: 0.75;
 }
 
+@media (pointer: coarse) {
+  /* The mouse/keyboard hint is actively wrong advice on a phone -- and on
+     a short mobile viewport, a touch-specific replacement here would just
+     collide with the THRUST/FIRE buttons anchored at the same bottom edge
+     (confirmed visually). The labeled on-screen buttons are self-
+     explanatory enough not to need it. */
+  .desktop-hint {
+    display: none;
+  }
+}
+
 .heat-gauge {
   display: flex;
   align-items: center;
@@ -725,6 +747,73 @@ button.secondary:disabled {
   background: rgba(91, 232, 255, 0.95);
   border-radius: 50%;
   transform: translate(-50%, -50%);
+}
+
+/* Touch-only on-screen controls -- hidden by default, shown for touch-
+   primary devices (phones/tablets) via the same (pointer: coarse) signal
+   used for the hint text above. Mouse+keyboard desktop users never see
+   these at all, not even faded out. */
+.touch-btn {
+  display: none;
+  position: absolute;
+  bottom: 28px;
+  width: 78px;
+  height: 78px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: rgba(10, 8, 20, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: #f2f2f8;
+  pointer-events: auto;
+  -webkit-tap-highlight-color: transparent;
+  user-select: none;
+  touch-action: none;
+}
+
+@media (pointer: coarse) {
+  .touch-btn {
+    display: flex;
+  }
+}
+
+.touch-btn:active {
+  background: rgba(91, 232, 255, 0.25);
+}
+
+.touch-thrust {
+  left: 28px;
+  border: 2px solid #5be8ff;
+  box-shadow: 0 0 10px rgba(91, 232, 255, 0.4);
+}
+
+.touch-fire {
+  right: 28px;
+  border: 2px solid #ff3d5a;
+  box-shadow: 0 0 10px rgba(255, 61, 90, 0.4);
+}
+
+.touch-fire:active {
+  background: rgba(255, 61, 90, 0.25);
+}
+
+/* Centered, above the THRUST/FIRE row (28px + their 78px height + a gap) --
+   not the top-right corner, which collides with the score panel on a
+   narrow phone viewport (confirmed visually: the panel can span close to
+   the full viewport width once centered). */
+.touch-cam {
+  bottom: 118px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 46px;
+  height: 46px;
+  font-size: 0.6rem;
+  border: 1.5px solid rgba(167, 139, 250, 0.6);
 }
 
 .damage-flash {
