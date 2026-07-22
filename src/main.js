@@ -6,6 +6,7 @@ import { createAudioSystem } from "./audio.js";
 import { updateHud } from "./hud.js";
 import { renderHangar } from "./hangar.js";
 import { renderLeaderboard } from "./leaderboard.js";
+import * as Loadouts from "./loadouts.js";
 
 // Registered for PWA installability (Add to Home Screen), not offline play
 // -- see sw.js's own comment for why this game specifically shouldn't try
@@ -493,7 +494,8 @@ function startGameLoop() {
   sizeCanvasFromLayout(canvas);
   const input = createInputController(canvas);
   wireTouchControls(input);
-  const renderer = createRenderer(canvas);
+  const selfEngineColor = Loadouts.resolveEngineColor(profile?.equippedCosmetic);
+  const renderer = createRenderer(canvas, selfEngineColor);
   gameRenderer = renderer;
   renderer.resize();
   window.addEventListener("resize", () => {

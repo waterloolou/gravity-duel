@@ -31,8 +31,10 @@ function facingTowardWell(spawnPos) {
 // player changes their loadout mid-match (takes effect next match, not
 // retroactively). `stats` defaults to physics.js's DEFAULT_SHIP_STATS,
 // which is numerically identical to the pre-loadout global constants -- see
-// that constant's own comment.
-export function createShip(id, spawnPos, stats = P.DEFAULT_SHIP_STATS) {
+// that constant's own comment. `engineColor` is purely cosmetic (a hex
+// number, see loadouts.js's COSMETICS) -- never read by physics.js, only
+// carried through to the wire format for render.js to pick up.
+export function createShip(id, spawnPos, stats = P.DEFAULT_SHIP_STATS, engineColor = 0xffffff) {
   const pos = { ...spawnPos };
   const { yaw, pitch } = P.yawPitchFromFacing(facingTowardWell(pos));
   return {
@@ -49,18 +51,22 @@ export function createShip(id, spawnPos, stats = P.DEFAULT_SHIP_STATS) {
     heat: 0,
     overheated: false,
     stats,
+    engineColor,
   };
 }
 
-// `loadouts` is an optional { [playerId]: statsObject } map -- a player
-// absent from it (or the whole argument omitted, as every existing test and
-// the pre-loadout call sites do) gets DEFAULT_SHIP_STATS via createShip's
-// own default, so this stays fully backward compatible.
-export function createMatchState(playerIds = ["p1", "p2"], loadouts = {}) {
+// `loadouts` is an optional { [playerId]: statsObject } map and `cosmetics`
+// an optional { [playerId]: engineColorHex } map -- a player absent from
+// either (or the whole argument omitted, as every existing test and every
+// pre-loadout/pre-cosmetics call site does) gets createShip's own defaults,
+// so this stays fully backward compatible.
+export function createMatchState(playerIds = ["p1", "p2"], loadouts = {}, cosmetics = {}) {
   const spawnPositions = spawnPositionsFor(playerIds);
   const ships = {};
   for (const id of playerIds) {
-    ships[id] = loadouts[id] ? createShip(id, spawnPositions[id], loadouts[id]) : createShip(id, spawnPositions[id]);
+    const stats = loadouts[id] ?? P.DEFAULT_SHIP_STATS;
+    const engineColor = cosmetics[id];
+    ships[id] = engineColor !== undefined ? createShip(id, spawnPositions[id], stats, engineColor) : createShip(id, spawnPositions[id], stats);
   }
   return {
     tick: 0,

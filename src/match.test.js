@@ -56,6 +56,22 @@ check("createMatchState builds exactly one ship per requested player id, in a fr
   assert.deepEqual(Object.keys(state.ships).sort(), ["p1", "p2", "p3"]);
 });
 
+check("engineColor defaults to white and is otherwise purely a pass-through, per-ship, surviving respawn", () => {
+  const defaultState = M.createMatchState(["p1", "p2"]);
+  assert.equal(defaultState.ships.p1.engineColor, 0xffffff);
+
+  const customState = M.createMatchState(["p1", "p2"], {}, { p1: 0xff6fa5, p2: 0x5dff8a });
+  assert.equal(customState.ships.p1.engineColor, 0xff6fa5);
+  assert.equal(customState.ships.p2.engineColor, 0x5dff8a);
+
+  // A lethal hit should respawn p1 without resetting its cosmetic.
+  let state = customState;
+  state.ships.p1 = { ...state.ships.p1, pos: { x: 150, y: 0, z: 0 } };
+  state.projectiles.push({ id: 1, ownerId: "p2", pos: { x: 150, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 });
+  const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
+  assert.equal(next.ships.p1.engineColor, 0xff6fa5, "engine color should survive a respawn unchanged");
+});
+
 check("removePlayer drops a ship and its own in-flight projectiles, leaving everyone else untouched", () => {
   let state = M.createMatchState(["p1", "p2", "p3"]);
   state.projectiles.push(

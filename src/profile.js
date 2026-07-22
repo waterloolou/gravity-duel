@@ -6,7 +6,7 @@
 // catalog, so a profile can never end up unlocked-but-nonexistent,
 // equipped-but-not-unlocked, or upgraded-past-maxLevel.
 
-import { SHIPS, WEAPONS, DEFAULT_SHIP_ID, DEFAULT_WEAPON_ID, UPGRADE_TREE, upgradeCost } from "./loadouts.js";
+import { SHIPS, WEAPONS, COSMETICS, DEFAULT_SHIP_ID, DEFAULT_WEAPON_ID, DEFAULT_COSMETIC_ID, UPGRADE_TREE, upgradeCost } from "./loadouts.js";
 
 const DEFAULT_STATS = { wins: 0, losses: 0, matchesPlayed: 0, kills: 0, deaths: 0 };
 const DISPLAY_NAME_MAX_LENGTH = 16;
@@ -20,8 +20,10 @@ export function createDefaultProfile(playerId) {
     lastSeenAt: now,
     unlockedShips: [DEFAULT_SHIP_ID],
     unlockedWeapons: [DEFAULT_WEAPON_ID],
+    unlockedCosmetics: [DEFAULT_COSMETIC_ID],
     equippedShip: DEFAULT_SHIP_ID,
     equippedWeapon: DEFAULT_WEAPON_ID,
+    equippedCosmetic: DEFAULT_COSMETIC_ID,
     upgrades: { thrust: 0, heat: 0, fireRate: 0, projSpeed: 0 },
     displayName: null, // shown on the leaderboard once set; null renders as an anonymous placeholder
     stats: { ...DEFAULT_STATS },
@@ -62,13 +64,14 @@ export function setDisplayName(profile, name) {
   return { profile: { ...profile, displayName: trimmed }, error: null };
 }
 
-const CATALOG_BY_KIND = { ship: SHIPS, weapon: WEAPONS };
-const UNLOCKED_FIELD_BY_KIND = { ship: "unlockedShips", weapon: "unlockedWeapons" };
+const CATALOG_BY_KIND = { ship: SHIPS, weapon: WEAPONS, cosmetic: COSMETICS };
+const UNLOCKED_FIELD_BY_KIND = { ship: "unlockedShips", weapon: "unlockedWeapons", cosmetic: "unlockedCosmetics" };
 
-// Spends currency to add `id` (a ship or weapon id) to the profile's unlock
-// list. Returns { profile, error } -- error is null on success, otherwise
-// one of "UNKNOWN_LOADOUT_ID" / "ALREADY_UNLOCKED" / "INSUFFICIENT_CURRENCY",
-// and `profile` is returned unchanged (never partially applied).
+// Spends currency to add `id` (a ship, weapon, or cosmetic id) to the
+// profile's unlock list. Returns { profile, error } -- error is null on
+// success, otherwise one of "UNKNOWN_LOADOUT_ID" / "ALREADY_UNLOCKED" /
+// "INSUFFICIENT_CURRENCY", and `profile` is returned unchanged (never
+// partially applied).
 export function purchaseUnlock(profile, kind, id) {
   const catalog = CATALOG_BY_KIND[kind];
   const def = catalog?.[id];
@@ -82,11 +85,11 @@ export function purchaseUnlock(profile, kind, id) {
   };
 }
 
-// Sets the equipped ship and/or weapon (either may be omitted to leave that
+// Sets the equipped ship/weapon/cosmetic (any may be omitted to leave that
 // slot as-is). Rejects equipping anything not already unlocked -- purchase
-// first via purchaseUnlock. Applies both changes atomically: if either id is
-// invalid/not-unlocked, neither slot changes.
-export function setEquipped(profile, shipId, weaponId) {
+// first via purchaseUnlock. Applies every change atomically: if ANY given id
+// is invalid/not-unlocked, NO slot changes.
+export function setEquipped(profile, shipId, weaponId, cosmeticId) {
   if (shipId !== undefined) {
     if (!SHIPS[shipId]) return { profile, error: "UNKNOWN_LOADOUT_ID" };
     if (!profile.unlockedShips.includes(shipId)) return { profile, error: "NOT_UNLOCKED" };
@@ -95,11 +98,16 @@ export function setEquipped(profile, shipId, weaponId) {
     if (!WEAPONS[weaponId]) return { profile, error: "UNKNOWN_LOADOUT_ID" };
     if (!profile.unlockedWeapons.includes(weaponId)) return { profile, error: "NOT_UNLOCKED" };
   }
+  if (cosmeticId !== undefined) {
+    if (!COSMETICS[cosmeticId]) return { profile, error: "UNKNOWN_LOADOUT_ID" };
+    if (!profile.unlockedCosmetics.includes(cosmeticId)) return { profile, error: "NOT_UNLOCKED" };
+  }
   return {
     profile: {
       ...profile,
       equippedShip: shipId !== undefined ? shipId : profile.equippedShip,
       equippedWeapon: weaponId !== undefined ? weaponId : profile.equippedWeapon,
+      equippedCosmetic: cosmeticId !== undefined ? cosmeticId : profile.equippedCosmetic,
     },
     error: null,
   };

@@ -14,8 +14,10 @@ check("createDefaultProfile starts with zero currency and the free starter loado
   assert.equal(p.currency, 0);
   assert.deepEqual(p.unlockedShips, ["interceptor"]);
   assert.deepEqual(p.unlockedWeapons, ["blaster"]);
+  assert.deepEqual(p.unlockedCosmetics, ["classic"]);
   assert.equal(p.equippedShip, "interceptor");
   assert.equal(p.equippedWeapon, "blaster");
+  assert.equal(p.equippedCosmetic, "classic");
   assert.deepEqual(p.upgrades, { thrust: 0, heat: 0, fireRate: 0, projSpeed: 0 });
   assert.equal(p.displayName, null);
   assert.deepEqual(p.stats, { wins: 0, losses: 0, matchesPlayed: 0, kills: 0, deaths: 0 });
@@ -94,6 +96,31 @@ check("setEquipped applies both slots atomically -- an invalid weapon rejects th
   const { profile: next, error } = Profile.setEquipped(p, "juggernaut", "railgun"); // ...but weapon isn't
   assert.equal(error, "NOT_UNLOCKED");
   assert.equal(next.equippedShip, "interceptor", "ship slot should not have changed either");
+});
+
+check("purchaseUnlock and setEquipped work for cosmetics the same way they do for ships/weapons", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 200);
+  const unlockResult = Profile.purchaseUnlock(p, "cosmetic", "solar");
+  assert.equal(unlockResult.error, null);
+  p = unlockResult.profile;
+  assert.deepEqual(p.unlockedCosmetics, ["classic", "solar"]);
+  assert.equal(p.currency, 0);
+
+  const { profile: equipped, error } = Profile.setEquipped(p, undefined, undefined, "solar");
+  assert.equal(error, null);
+  assert.equal(equipped.equippedCosmetic, "solar");
+  assert.equal(equipped.equippedShip, "interceptor", "untouched slots stay untouched");
+  assert.equal(equipped.equippedWeapon, "blaster");
+});
+
+check("setEquipped rejects an unpurchased cosmetic, atomically with the other slots", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.awardCurrency(p, 400);
+  ({ profile: p } = Profile.purchaseUnlock(p, "ship", "wraith"));
+  const { profile: next, error } = Profile.setEquipped(p, "wraith", undefined, "royal"); // ship unlocked, cosmetic isn't
+  assert.equal(error, "NOT_UNLOCKED");
+  assert.equal(next.equippedShip, "interceptor", "ship slot should not change either, despite being valid on its own");
 });
 
 check("purchaseUpgrade spends currency at the current level's cost and raises the level by one", () => {

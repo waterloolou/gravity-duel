@@ -98,4 +98,18 @@ check("heat upgrades scale overheatClearHeat by the same factor as maxHeat, pres
   assert.ok(Math.abs(ratio - Loadouts.SHIPS.wraith.overheatClearHeat / Loadouts.SHIPS.wraith.maxHeat) < 1e-9);
 });
 
+check("resolveEngineColor returns the free default's color for the default id", () => {
+  assert.equal(Loadouts.resolveEngineColor(Loadouts.DEFAULT_COSMETIC_ID), Loadouts.COSMETICS.classic.engineColor);
+});
+
+check("resolveEngineColor falls back to the free default for an unknown/missing cosmetic id", () => {
+  assert.equal(Loadouts.resolveEngineColor("not-a-real-cosmetic"), Loadouts.COSMETICS.classic.engineColor);
+  assert.equal(Loadouts.resolveEngineColor(undefined), Loadouts.COSMETICS.classic.engineColor);
+});
+
+check("every cosmetic has a distinct engine color (no accidental duplicates in the catalog)", () => {
+  const colors = Object.values(Loadouts.COSMETICS).map((c) => c.engineColor);
+  assert.equal(new Set(colors).size, colors.length);
+});
+
 console.log(`\n${passed} loadouts.js assertions passed`);

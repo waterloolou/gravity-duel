@@ -44,6 +44,7 @@ function interpolateState(a, b, t) {
       thrusting: sb.thrusting,
       heat: lerp(sa.heat, sb.heat, t), // smoothed, so the HUD gauge doesn't visibly step at 30Hz
       overheated: sb.overheated,
+      engineColor: sb.engineColor, // cosmetic, fixed for a ship's whole lifetime -- snaps like invulnerable/thrusting, no reason to interpolate a color
     };
   }
   // Projectiles are numerous and transient; rendering the latest snapshot's

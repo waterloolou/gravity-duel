@@ -155,8 +155,12 @@ function beginMatch(code) {
   if (entry.room.phase !== "active") return;
   const activeIds = R.activePlayerIds(entry.room);
   const loadouts = {};
-  for (const id of activeIds) loadouts[id] = resolveLoadoutForSeat(entry, id);
-  entry.matchState = M.createMatchState(activeIds, loadouts);
+  const cosmetics = {};
+  for (const id of activeIds) {
+    loadouts[id] = resolveLoadoutForSeat(entry, id);
+    cosmetics[id] = resolveCosmeticForSeat(entry, id);
+  }
+  entry.matchState = M.createMatchState(activeIds, loadouts, cosmetics);
   entry.inputs = {};
   for (const id of activeIds) entry.inputs[id] = neutralInput(entry.matchState.ships[id]);
   startTickLoop(code);
@@ -173,6 +177,16 @@ function resolveLoadoutForSeat(entry, seatId) {
   return Loadouts.resolveShipStats(profile?.equippedShip, profile?.equippedWeapon, profile?.upgrades);
 }
 
+// Same fallback philosophy as resolveLoadoutForSeat -- an unidentified/
+// missing profile just gets the free default engine color, never blocks a
+// match from starting.
+function resolveCosmeticForSeat(entry, seatId) {
+  const seat = entry.room.players[seatId];
+  const sock = seat && sockets.get(seat.socketId);
+  const profile = sock?.profileId ? ProfileStore.get(sock.profileId) : null;
+  return Loadouts.resolveEngineColor(profile?.equippedCosmetic);
+}
+
 function serializeMatchState(state, now) {
   const ships = {};
   for (const [id, s] of Object.entries(state.ships)) {
@@ -186,6 +200,7 @@ function serializeMatchState(state, now) {
       thrusting: !!s.thrusting,
       heat: s.heat,
       overheated: !!s.overheated,
+      engineColor: s.engineColor,
     };
   }
   return {
@@ -452,7 +467,7 @@ function handleMessage(socketId, msg) {
     }
     case MSG.EQUIP_LOADOUT: {
       if (!sock.profileId) return;
-      const { profile: next, error } = Profile.setEquipped(ProfileStore.get(sock.profileId), msg.shipId, msg.weaponId);
+      const { profile: next, error } = Profile.setEquipped(ProfileStore.get(sock.profileId), msg.shipId, msg.weaponId, msg.cosmeticId);
       if (error) {
         send(sock.ws, MSG.ERROR, { code: ERROR_CODES[error], message: "Couldn't equip that loadout." });
         return;

@@ -6,18 +6,26 @@
 import { MSG } from "../protocol.js";
 import * as Loadouts from "./loadouts.js";
 
+const UNLOCKED_FIELD_BY_KIND = { ship: "unlockedShips", weapon: "unlockedWeapons", cosmetic: "unlockedCosmetics" };
+const EQUIPPED_FIELD_BY_KIND = { ship: "equippedShip", weapon: "equippedWeapon", cosmetic: "equippedCosmetic" };
+const EQUIP_PAYLOAD_KEY_BY_KIND = { ship: "shipId", weapon: "weaponId", cosmetic: "cosmeticId" };
+
 function statSummaryHtml(kind, def) {
   if (kind === "ship") {
     return `Thrust ${def.thrustAccel} &middot; Top speed ${def.maxSpeed} &middot; Heat capacity ${def.maxHeat}`;
   }
-  return `Fire rate ${(1 / def.fireCooldown).toFixed(2)}/s &middot; Shot speed ${def.projectileLaunchSpeed}`;
+  if (kind === "weapon") {
+    return `Fire rate ${(1 / def.fireCooldown).toFixed(2)}/s &middot; Shot speed ${def.projectileLaunchSpeed}`;
+  }
+  // cosmetic: a color swatch reads better here than any numeric stat line --
+  // there's nothing to compare, engine color is purely visual.
+  const hex = `#${def.engineColor.toString(16).padStart(6, "0")}`;
+  return `<span class="cosmetic-swatch" style="background:${hex};color:${hex}"></span>`;
 }
 
 function buildCard(kind, id, def, profile, net, errorEl) {
-  const unlockedField = kind === "ship" ? "unlockedShips" : "unlockedWeapons";
-  const equippedField = kind === "ship" ? "equippedShip" : "equippedWeapon";
-  const isUnlocked = profile[unlockedField].includes(id);
-  const isEquipped = profile[equippedField] === id;
+  const isUnlocked = profile[UNLOCKED_FIELD_BY_KIND[kind]].includes(id);
+  const isEquipped = profile[EQUIPPED_FIELD_BY_KIND[kind]] === id;
 
   const card = document.createElement("div");
   card.className = `loadout-card${isEquipped ? " equipped" : ""}`;
@@ -36,7 +44,7 @@ function buildCard(kind, id, def, profile, net, errorEl) {
     actionBtn.textContent = "Equip";
     actionBtn.addEventListener("click", () => {
       errorEl.textContent = "";
-      net.send(MSG.EQUIP_LOADOUT, kind === "ship" ? { shipId: id } : { weaponId: id });
+      net.send(MSG.EQUIP_LOADOUT, { [EQUIP_PAYLOAD_KEY_BY_KIND[kind]]: id });
     });
   } else {
     actionBtn.textContent = def.cost > 0 ? `Unlock — ${def.cost} credits` : "Unlock";
@@ -93,6 +101,7 @@ export function renderHangar(profile, net) {
   const errorEl = document.querySelector("[data-hangar-error]");
   const shipGrid = document.querySelector("[data-ship-grid]");
   const weaponGrid = document.querySelector("[data-weapon-grid]");
+  const cosmeticGrid = document.querySelector("[data-cosmetic-grid]");
   const upgradeList = document.querySelector("[data-upgrade-list]");
   if (!profile || !shipGrid || !weaponGrid) return;
 
@@ -103,6 +112,12 @@ export function renderHangar(profile, net) {
   weaponGrid.innerHTML = "";
   for (const [id, def] of Object.entries(Loadouts.WEAPONS)) {
     weaponGrid.appendChild(buildCard("weapon", id, def, profile, net, errorEl));
+  }
+  if (cosmeticGrid) {
+    cosmeticGrid.innerHTML = "";
+    for (const [id, def] of Object.entries(Loadouts.COSMETICS)) {
+      cosmeticGrid.appendChild(buildCard("cosmetic", id, def, profile, net, errorEl));
+    }
   }
   if (upgradeList) {
     upgradeList.innerHTML = "";

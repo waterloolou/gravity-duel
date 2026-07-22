@@ -280,7 +280,7 @@ function createShipModel(geo, hullColor, engineColor) {
   };
 }
 
-export function createRenderer(canvas) {
+export function createRenderer(canvas, selfEngineColor = 0xffffff) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x05050a);
 
@@ -387,15 +387,17 @@ export function createRenderer(canvas) {
   // time that player id is seen and disposed once they're gone (same
   // create-on-sight/dispose-on-absence lifecycle as projectileMeshes below).
   const shipGeo = buildShipGeometries();
-  const selfShipModel = createShipModel(shipGeo, OWN_COLOR, 0xffffff);
+  const selfShipModel = createShipModel(shipGeo, OWN_COLOR, selfEngineColor);
   selfShipModel.group.visible = false;
   scene.add(selfShipModel.group);
   const opponentShips = new Map(); // playerId -> ship model
 
-  function getOrCreateOpponentShip(id) {
+  // engineColor is fixed for a ship's whole lifetime (see net.js), so it's
+  // only ever needed at creation time, not on every update.
+  function getOrCreateOpponentShip(id, engineColor) {
     let model = opponentShips.get(id);
     if (!model) {
-      model = createShipModel(shipGeo, ENEMY_COLOR, 0xffffff);
+      model = createShipModel(shipGeo, ENEMY_COLOR, engineColor ?? 0xffffff);
       scene.add(model.group);
       opponentShips.set(id, model);
     }
@@ -561,7 +563,7 @@ export function createRenderer(canvas) {
     for (const [id, ship] of Object.entries(ships)) {
       if (id === selfId) continue;
       seen.add(id);
-      const model = getOrCreateOpponentShip(id);
+      const model = getOrCreateOpponentShip(id, ship.engineColor);
       model.group.position.set(ship.pos[0], ship.pos[1], ship.pos[2]);
       const facing = P.facingFromYawPitch(ship.yaw, ship.pitch);
       model.group.lookAt(model.group.position.x + facing.x, model.group.position.y + facing.y, model.group.position.z + facing.z);

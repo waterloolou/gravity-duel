@@ -82,6 +82,30 @@ export const WEAPONS = {
   },
 };
 
+// Purely cosmetic -- engine trail color only, deliberately NOT hull color.
+// Hull color is the primary at-a-glance "is this me or an opponent" signal
+// (OWN_COLOR vs ENEMY_COLOR in render.js) during fast combat; letting
+// players recolor THAT would risk misidentifying a ship mid-fight, or
+// picking the same color as an opponent. Engine color carries none of that
+// weight, so it's a genuine zero-risk "flex" customization -- visible to
+// everyone else in a match, no combat-clarity or pay-to-win tension at all.
+export const DEFAULT_COSMETIC_ID = "classic";
+
+export const COSMETICS = {
+  classic: { name: "Classic White", cost: 0, engineColor: 0xffffff },
+  solar: { name: "Solar Flare", cost: 200, engineColor: 0xffaa33 },
+  toxic: { name: "Toxic Green", cost: 200, engineColor: 0x5dff8a },
+  royal: { name: "Royal Violet", cost: 200, engineColor: 0xb98bff },
+  rose: { name: "Rose Quartz", cost: 200, engineColor: 0xff6fa5 },
+};
+
+// Resolves a cosmetic id to its engine color hex -- unknown/missing id falls
+// back to the free default, same "never fail to start a match" philosophy
+// as resolveShipStats below.
+export function resolveEngineColor(cosmeticId) {
+  return (COSMETICS[cosmeticId] ?? COSMETICS[DEFAULT_COSMETIC_ID]).engineColor;
+}
+
 // Real, accumulating power growth (unlike the lateral ships/weapons above) --
 // deliberately modest per level so it compounds slowly rather than dwarfing
 // the 15-40% lateral swings between ship classes/weapons. 5 levels each,
