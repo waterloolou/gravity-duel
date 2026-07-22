@@ -21,6 +21,18 @@ let roomPhase = "home";
 let winner = null;
 let winReason = null;
 let profile = null;
+let currentRoomCode = null;
+
+// A friend's shared invite link (?room=ABCD) -- read once at load, then
+// stripped from the URL immediately (history.replaceState) so a page
+// refresh doesn't keep re-attempting to join a code that may have already
+// filled up or finished. Pre-filling the code input too means a failed
+// auto-join (room gone/full) still leaves something useful on screen to
+// retry or fall back from, instead of just an error with no context.
+const inviteCode = new URLSearchParams(location.search).get("room");
+if (inviteCode) {
+  history.replaceState(null, "", location.pathname);
+}
 
 // No accounts -- this id is just "which save file to load" for currency and
 // (later) ship/weapon unlocks, generated once per browser and reused on
@@ -142,6 +154,30 @@ document.querySelector("[data-join-room]").addEventListener("click", () => {
   net.send(MSG.JOIN_ROOM, { code });
 });
 
+if (inviteCode) {
+  const joinInput = document.querySelector("[data-join-code-input]");
+  joinInput.value = inviteCode.toUpperCase();
+  document.querySelector(".private-room").open = true; // reveal it rather than leaving a filled-in field hidden behind a closed <details>
+}
+
+const copyInviteBtn = document.querySelector("[data-copy-invite]");
+copyInviteBtn?.addEventListener("click", async () => {
+  audioSystem.uiClick();
+  const link = `${location.origin}${location.pathname}?room=${currentRoomCode}`;
+  const originalText = copyInviteBtn.textContent;
+  try {
+    await navigator.clipboard.writeText(link);
+    copyInviteBtn.textContent = "Copied!";
+  } catch {
+    // Clipboard API can be unavailable (older browser, insecure context) --
+    // fall back to just showing the link so it can be selected/copied by hand.
+    window.prompt("Copy this invite link:", link);
+  }
+  setTimeout(() => {
+    copyInviteBtn.textContent = originalText;
+  }, 1500);
+});
+
 readyBtn.addEventListener("click", () => {
   // Guard client-side against the exact bug that caused P1 to get
   // permanently stuck: clicking Ready before at least one other player has
@@ -160,12 +196,16 @@ readyBtn.addEventListener("click", () => {
 playAgainBtn.addEventListener("click", () => {
   audioSystem.uiClick();
   net.send(MSG.LEAVE_ROOM);
-  // A full rematch-without-refresh would need to reset gameLoopStarted,
-  // aimInitialized, VFX/audio state, and the renderer's Three.js scene --
-  // a real scope jump (explicitly deferred in this project's own backlog).
-  // A reload is a completely reliable reset and gets back to a fresh room
-  // in one click, which is what "Play Again" needs to actually do here.
+  // "Leave" (as opposed to "Rematch" below) intentionally goes all the way
+  // back to the anonymous home screen -- a full reload is a completely
+  // reliable reset for that, no need to hand-unwind VFX/audio/game-loop
+  // state for a path that's leaving the room entirely anyway.
   location.reload();
+});
+
+document.querySelector("[data-rematch]").addEventListener("click", () => {
+  audioSystem.uiClick();
+  net.send(MSG.REQUEST_REMATCH);
 });
 
 let playersInRoom = 1; // creating/joining always seats the local player immediately
@@ -173,6 +213,7 @@ let playersInRoom = 1; // creating/joining always seats the local player immedia
 function enterLobby(code, playerNumber) {
   selfId = playerNumber;
   roomPhase = "lobby";
+  currentRoomCode = code;
   roomCodeEl.textContent = code;
   hud.dataset.roomCodeHud = code;
   showView("lobby");
@@ -191,7 +232,13 @@ function enterLobby(code, playerNumber) {
 // drops anything sent before that (no queue), so this is structurally
 // guaranteed to be the first message this connection ever sends, which is
 // exactly what the server assumes (see server.js's IDENTIFY handler).
-net.on("_open", () => net.send(MSG.IDENTIFY, { playerId: getOrCreatePlayerId() }));
+net.on("_open", () => {
+  net.send(MSG.IDENTIFY, { playerId: getOrCreatePlayerId() });
+  // JOIN_ROOM doesn't depend on the profile being loaded (only match-start
+  // loadout resolution does, later), so this can fire right alongside
+  // IDENTIFY rather than waiting for a PROFILE_STATE round-trip.
+  if (inviteCode) net.send(MSG.JOIN_ROOM, { code: inviteCode });
+});
 
 const currencyBadge = document.querySelector("[data-currency-badge]");
 const currencyValueEl = document.querySelector("[data-currency]");
@@ -215,6 +262,22 @@ net.on(MSG.ERROR, (msg) => {
 });
 
 net.on(MSG.LOBBY_STATE, (msg) => {
+  // A LOBBY_STATE arriving while we're still showing the match-over banner
+  // means someone clicked "Rematch" (see room.js's rematch() and server.js's
+  // REQUEST_REMATCH handler) -- switch back to the lobby view and clear the
+  // previous match's leftover UI state, same as enterLobby() does for a
+  // brand-new room. The underlying game loop/renderer are NOT torn down
+  // (see the MATCH_STATE handler below); they just pick up the next
+  // match's snapshots once ready-up finishes again.
+  if (roomPhase === "over") {
+    roomPhase = "lobby";
+    matchOverBanner.hidden = true;
+    killFeedEl.innerHTML = "";
+    winner = null;
+    winReason = null;
+    showView("lobby");
+  }
+
   // Defensively reset any in-flight countdown -- covers a disconnect during
   // the starting countdown reverting the room back to "waiting", which must
   // not leave the big countdown number stuck on screen.
@@ -249,6 +312,7 @@ net.on(MSG.MATCH_STARTING, (msg) => {
   let secondsLeft = Math.ceil(msg.countdownMs / 1000);
   lobbyStatusEl.textContent = "Get ready…";
   countdownEl.hidden = false;
+  aimInitialized = false; // this match's ships get a fresh spawn facing -- see this flag's own declaration comment
 
   const showTick = (n) => {
     countdownEl.textContent = String(n);
@@ -274,6 +338,11 @@ let latestSelf = null;
 let latestShips = null; // full snapshot (all players, self included), for looking up any victim's position
 let latestTick = 0;
 let gameRenderer = null;
+// Module-level (not local to startGameLoop's loop()) so MATCH_STARTING can
+// reset it -- a rematch's fresh match assigns a brand-new spawn facing, and
+// without this reset the input controller would stay pointed wherever the
+// PREVIOUS match's ship happened to be aiming when it ended.
+let aimInitialized = false;
 
 net.on(MSG.MATCH_EVENT, (msg) => {
   if (msg.event === "hit" || msg.event === "well_death" || msg.event === "moon_death") {
@@ -327,10 +396,17 @@ net.on(MSG.MATCH_EVENT, (msg) => {
 
 let gameLoopStarted = false;
 net.on(MSG.MATCH_STATE, () => {
-  if (gameLoopStarted) return;
-  gameLoopStarted = true;
+  // showView/roomPhase run every time (idempotent) so a rematch's fresh
+  // match correctly switches back from the lobby to the play view -- but
+  // startGameLoop() itself (which builds the renderer/input controller)
+  // must still only ever run once: it keeps running after the first match
+  // ends, and simply resumes rendering once fresh snapshots arrive again,
+  // so rebuilding the whole Three.js scene for a rematch would be both
+  // wasteful and wrong (a second render loop racing the first).
   roomPhase = "active";
   showView("play");
+  if (gameLoopStarted) return;
+  gameLoopStarted = true;
   startGameLoop();
 });
 
@@ -401,7 +477,6 @@ function startGameLoop() {
 
   let lastInputSend = 0;
   const inputIntervalMs = 1000 / 30;
-  let aimInitialized = false;
   let wasThrusting = false;
   // Extends the same test-only escape hatch input.js already exposes
   // (setAim/setInput) with read access to the authoritative self-ship state,

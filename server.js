@@ -449,6 +449,14 @@ function handleMessage(socketId, msg) {
       send(sock.ws, MSG.PROFILE_STATE, { profile: next });
       return;
     }
+    case MSG.REQUEST_REMATCH: {
+      const entry = rooms.get(sock.roomCode);
+      if (!entry || entry.room.phase !== "over") return;
+      entry.room = R.rematch(entry.room);
+      entry.matchState = null; // the finished match's state is no longer relevant; beginMatch() builds a fresh one
+      broadcastLobbyState(sock.roomCode);
+      return;
+    }
   }
 }
 

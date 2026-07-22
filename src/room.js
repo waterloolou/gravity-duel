@@ -97,10 +97,6 @@ export function handleDisconnect(room, socketId, now) {
 
   const remainingIds = activePlayerIds(room).filter((id) => id !== disconnectedId);
 
-  if (room.phase === "over") {
-    return { room, deleted: false, disconnectedId };
-  }
-
   if (room.phase === "active") {
     if (remainingIds.length >= 2) {
       // Free-for-all continues with fewer players -- just vacate their slot,
@@ -119,10 +115,14 @@ export function handleDisconnect(room, socketId, now) {
     };
   }
 
-  // Pre-match (waiting / full / starting): remove the slot and compact the
-  // rest down to a contiguous p1... prefix, so a fresh joiner always lands in
-  // the next open slot. Reset everyone's ready state -- the roster just
-  // changed, so any earlier "all ready" agreement no longer applies.
+  // Every other phase (waiting / full / starting / over): remove the slot
+  // and compact the rest down to a contiguous p1... prefix, so a fresh
+  // joiner (or a later rematch()) always finds a clean roster. "over" is
+  // included here -- a finished room can now go back to a live lobby via
+  // rematch(), so a stale disconnected-but-still-seated player must not
+  // silently keep occupying a slot once that happens. Only pre-match phases
+  // actually revert to "waiting"; a still-"over" room stays "over" until
+  // someone explicitly rematches.
   if (remainingIds.length === 0) return { room, deleted: true, disconnectedId };
 
   const players = {};
@@ -131,5 +131,23 @@ export function handleDisconnect(room, socketId, now) {
   });
   for (const slot of PLAYER_SLOTS.slice(remainingIds.length)) players[slot] = null;
 
-  return { room: { ...room, phase: "waiting", players }, deleted: false, disconnectedId };
+  const phase = room.phase === "over" ? "over" : "waiting";
+  return { room: { ...room, phase, players }, deleted: false, disconnectedId };
+}
+
+// Returns a finished room to a fresh pre-match lobby with the SAME roster
+// (whoever is still connected), ready flags reset and winner/winReason
+// cleared -- used by the "Rematch" button so a group doesn't have to
+// re-matchmake from scratch to play again. Slot compaction (if needed)
+// already happened via handleDisconnect while the match was wrapping up;
+// this only resets state, it doesn't touch slot assignment.
+export function rematch(room) {
+  if (room.phase !== "over") return room;
+  const activeIds = activePlayerIds(room);
+  const players = {};
+  for (const id of PLAYER_SLOTS) {
+    players[id] = room.players[id] ? { ...room.players[id], ready: false } : null;
+  }
+  const phase = activeIds.length >= MAX_PLAYERS ? "full" : "waiting";
+  return { ...room, phase, players, winner: null, winReason: null };
 }

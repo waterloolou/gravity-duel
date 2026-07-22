@@ -14,6 +14,7 @@ export const MSG = {
   PURCHASE_UNLOCK: "purchase_unlock",
   EQUIP_LOADOUT: "equip_loadout",
   PURCHASE_UPGRADE: "purchase_upgrade",
+  REQUEST_REMATCH: "request_rematch",
 
   // Server -> Client
   ROOM_CREATED: "room_created",

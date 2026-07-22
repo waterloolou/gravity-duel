@@ -321,7 +321,10 @@ button.secondary:disabled {
   margin: 4px 0 0;
 }
 
-.lobby-hangar-btn {
+.lobby-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
   margin-top: 16px;
 }
 
@@ -902,9 +905,18 @@ button.secondary:disabled {
   margin: 0 0 12px;
 }
 
+.match-over-actions {
+  display: flex;
+  gap: 12px;
+}
+
 .match-over-banner .primary {
   font-size: 1.05rem;
   padding: 14px 36px;
+}
+
+.match-over-banner .secondary {
+  padding: 14px 28px;
 }
 
 .match-over-hint {

@@ -226,7 +226,7 @@ check("disconnect from a socket that isn't actually in the room is a no-op", () 
   assert.deepEqual(after, room);
 });
 
-check("recordMatchOver and further disconnects after the match is over are no-ops", () => {
+check("recordMatchOver is a no-op once the room is already over", () => {
   let room = R.createRoom("ABCD", "socket-1");
   ({ room } = R.joinRoom(room, "socket-2"));
   room = R.setReady(room, "p1", true);
@@ -237,9 +237,66 @@ check("recordMatchOver and further disconnects after the match is over are no-op
 
   const stillOver = R.recordMatchOver(room, "p2", "won");
   assert.equal(stillOver.winner, "p1", "recordMatchOver should be a no-op once already over");
+});
 
-  const { room: after } = R.handleDisconnect(room, "socket-1", 0);
-  assert.equal(after.phase, "over", "a disconnect after the match is already over should not change anything");
+check("a disconnect after the match is over vacates that seat but stays over (until a rematch)", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  room = R.setReady(room, "p1", true);
+  room = R.setReady(room, "p2", true);
+  room = R.setReady(room, "p3", true);
+  room = R.beginMatch(room);
+  room = R.recordMatchOver(room, "p1", "won");
+
+  const { room: after, deleted } = R.handleDisconnect(room, "socket-2", 0); // p2 leaves after the match ended
+  assert.equal(deleted, false);
+  assert.equal(after.phase, "over", "should still read as over, not silently reopen for matchmaking");
+  assert.equal(after.winner, "p1", "the recorded result shouldn't change");
+  // Compacted like any other departure -- p3 (still connected) should not be
+  // left as a stale ghost seat that a later rematch() would incorrectly count.
+  assert.equal(after.players.p1.socketId, "socket-1");
+  assert.equal(after.players.p2.socketId, "socket-3");
+  assert.equal(after.players.p3, null);
+});
+
+check("rematch resets a finished room to a fresh lobby with the same roster", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  room = R.setReady(room, "p1", true);
+  room = R.setReady(room, "p2", true);
+  room = R.beginMatch(room);
+  room = R.recordMatchOver(room, "p2", "won");
+
+  const after = R.rematch(room);
+  assert.equal(after.phase, "waiting", "2 of 4 seats filled -- still short of MAX_PLAYERS, so joinable again");
+  assert.equal(after.winner, null);
+  assert.equal(after.winReason, null);
+  assert.equal(after.players.p1.socketId, "socket-1", "same roster, not re-matchmade");
+  assert.equal(after.players.p2.socketId, "socket-2");
+  assert.equal(after.players.p1.ready, false, "ready flags reset -- everyone has to ready up again");
+  assert.equal(after.players.p2.ready, false);
+});
+
+check("rematch goes to full (not waiting) when the finished room was already at capacity", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  ({ room } = R.joinRoom(room, "socket-4"));
+  room = R.setReady(room, "p1", true);
+  room = R.setReady(room, "p2", true);
+  room = R.setReady(room, "p3", true);
+  room = R.setReady(room, "p4", true);
+  room = R.beginMatch(room);
+  room = R.recordMatchOver(room, "p1", "won");
+
+  const after = R.rematch(room);
+  assert.equal(after.phase, "full", "4 of 4 seats filled -- not joinable, straight back to ready-up");
+});
+
+check("rematch is a no-op outside the over phase", () => {
+  const room = R.createRoom("ABCD", "socket-1");
+  assert.equal(R.rematch(room), room);
 });
 
 console.log(`\n${passed} room.js assertions passed`);
