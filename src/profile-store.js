@@ -96,11 +96,39 @@ export function awardCurrency(playerId, amount) {
   return profile;
 }
 
+export function addStats(playerId, delta) {
+  const profile = Profile.addStats(get(playerId), delta);
+  profiles.set(playerId, profile);
+  markDirty();
+  return profile;
+}
+
 // Overwrites the stored profile outright -- used after a pure profile.js
-// mutation (purchaseUnlock/setEquipped) has already produced the next
-// profile object; this just commits it and schedules a flush.
+// mutation (purchaseUnlock/setEquipped/setDisplayName) has already produced
+// the next profile object; this just commits it and schedules a flush.
 export function set(playerId, profile) {
   profiles.set(playerId, profile);
   markDirty();
   return profile;
+}
+
+// Top N by wins (kills as a tiebreaker), server-side ranked so raw
+// playerIds never have to leave the server -- see server.js's IDENTIFY
+// handler for why that id must never be exposed to other clients. `self`
+// is the requester's own rank/stats even when they're outside the top N
+// (or null if they've never finished a match), computed here rather than
+// left for the client to infer, since the client is never given anyone
+// else's playerId to match against in the first place.
+export function getLeaderboard(requestingPlayerId, limit = 10) {
+  const ranked = Array.from(profiles.values())
+    .filter((p) => p.stats?.matchesPlayed > 0)
+    .sort((a, b) => b.stats.wins - a.stats.wins || b.stats.kills - a.stats.kills);
+
+  const toRow = (p, rank) => ({ rank, displayName: p.displayName || "Unnamed Pilot", stats: p.stats, isYou: p.playerId === requestingPlayerId });
+
+  const top = ranked.slice(0, limit).map((p, i) => toRow(p, i + 1));
+  const selfIndex = ranked.findIndex((p) => p.playerId === requestingPlayerId);
+  const self = selfIndex >= 0 ? toRow(ranked[selfIndex], selfIndex + 1) : null;
+
+  return { top, self };
 }

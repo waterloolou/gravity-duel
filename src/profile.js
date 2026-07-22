@@ -8,6 +8,9 @@
 
 import { SHIPS, WEAPONS, DEFAULT_SHIP_ID, DEFAULT_WEAPON_ID, UPGRADE_TREE, upgradeCost } from "./loadouts.js";
 
+const DEFAULT_STATS = { wins: 0, losses: 0, matchesPlayed: 0, kills: 0, deaths: 0 };
+const DISPLAY_NAME_MAX_LENGTH = 16;
+
 export function createDefaultProfile(playerId) {
   const now = Date.now();
   return {
@@ -20,6 +23,8 @@ export function createDefaultProfile(playerId) {
     equippedShip: DEFAULT_SHIP_ID,
     equippedWeapon: DEFAULT_WEAPON_ID,
     upgrades: { thrust: 0, heat: 0, fireRate: 0, projSpeed: 0 },
+    displayName: null, // shown on the leaderboard once set; null renders as an anonymous placeholder
+    stats: { ...DEFAULT_STATS },
   };
 }
 
@@ -30,6 +35,31 @@ export function awardCurrency(profile, amount) {
 
 export function touchLastSeen(profile, now = Date.now()) {
   return { ...profile, lastSeenAt: now };
+}
+
+// `delta` is a partial stats object to ADD (e.g. { kills: 1 }), not a
+// replacement -- lets every call site stay a one-liner instead of reading
+// the current value first. Defensive against `profile.stats` being absent
+// (a profile persisted before this field existed) rather than assuming
+// every stored profile already has the current shape.
+export function addStats(profile, delta) {
+  const stats = { ...DEFAULT_STATS, ...profile.stats };
+  for (const [key, amount] of Object.entries(delta)) {
+    stats[key] = (stats[key] ?? 0) + amount;
+  }
+  return { ...profile, stats };
+}
+
+// Player-chosen, shown on the leaderboard instead of the raw persistent id
+// (which must never be exposed to other clients -- it's effectively a
+// credential, see server.js's IDENTIFY handler comment). Trimmed and
+// length-capped server-side; still gets HTML-escaped again at render time
+// on the client since this is free-text user input rendered to OTHER
+// players, a real stored-XSS surface if that step were ever skipped.
+export function setDisplayName(profile, name) {
+  const trimmed = String(name ?? "").trim().slice(0, DISPLAY_NAME_MAX_LENGTH);
+  if (!trimmed) return { profile, error: "INVALID_NAME" };
+  return { profile: { ...profile, displayName: trimmed }, error: null };
 }
 
 const CATALOG_BY_KIND = { ship: SHIPS, weapon: WEAPONS };

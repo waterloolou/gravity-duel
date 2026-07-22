@@ -124,17 +124,20 @@ function neutralInput(ship) {
   return { aimYaw: ship.yaw, aimPitch: ship.pitch, thrusting: false, firing: false };
 }
 
-// Awards currency to whoever holds a given room seat (e.g. "p2"), keyed
-// through to their persistent profile via their socket's profileId -- not
-// everyone identifies before playing (or plays in a second tab), so this is
-// a no-op rather than an error when there's nothing to credit.
-function awardCurrencyToSeat(entry, seatId, amount) {
+// Applies one or more ProfileStore mutations to whoever holds a given room
+// seat (e.g. "p2"), keyed through to their persistent profile via their
+// socket's profileId -- not everyone identifies before playing (or plays in
+// a second tab), so this is a no-op rather than an error when there's
+// nothing to credit. `mutate` may call multiple ProfileStore functions
+// (e.g. awardCurrency AND addStats for a kill); only one PROFILE_STATE is
+// sent afterward, reflecting all of them together, not one per call.
+function updateProfileForSeat(entry, seatId, mutate) {
   const seat = entry.room.players[seatId];
   if (!seat) return;
   const sock = sockets.get(seat.socketId);
   if (!sock?.profileId) return;
-  const profile = ProfileStore.awardCurrency(sock.profileId, amount);
-  send(sock.ws, MSG.PROFILE_STATE, { profile });
+  mutate(sock.profileId);
+  send(sock.ws, MSG.PROFILE_STATE, { profile: ProfileStore.get(sock.profileId) });
 }
 
 function beginMatch(code) {
@@ -223,16 +226,31 @@ function startTickLoop(code) {
       entry.matchState = state;
       for (const ev of events) {
         broadcastToRoom(entry, MSG.MATCH_EVENT, ev);
-        if (ev.event === "hit") awardCurrencyToSeat(entry, ev.killerId, KILL_CURRENCY_REWARD);
+        if (ev.event === "hit" || ev.event === "well_death" || ev.event === "moon_death") {
+          updateProfileForSeat(entry, ev.victimId, (id) => ProfileStore.addStats(id, { deaths: 1 }));
+        }
+        if (ev.event === "hit") {
+          updateProfileForSeat(entry, ev.killerId, (id) => {
+            ProfileStore.awardCurrency(id, KILL_CURRENCY_REWARD);
+            ProfileStore.addStats(id, { kills: 1 });
+          });
+        }
       }
 
       if (state.winner) {
         entry.room = R.recordMatchOver(entry.room, state.winner, "won");
         clearInterval(entry.tickTimer);
         entry.tickTimer = null;
-        awardCurrencyToSeat(entry, state.winner, MATCH_WIN_CURRENCY_REWARD);
+        updateProfileForSeat(entry, state.winner, (id) => {
+          ProfileStore.awardCurrency(id, MATCH_WIN_CURRENCY_REWARD);
+          ProfileStore.addStats(id, { wins: 1, matchesPlayed: 1 });
+        });
         for (const id of state.playerIds) {
-          if (id !== state.winner) awardCurrencyToSeat(entry, id, MATCH_PARTICIPATION_CURRENCY_REWARD);
+          if (id === state.winner) continue;
+          updateProfileForSeat(entry, id, (pid) => {
+            ProfileStore.awardCurrency(pid, MATCH_PARTICIPATION_CURRENCY_REWARD);
+            ProfileStore.addStats(pid, { losses: 1, matchesPlayed: 1 });
+          });
         }
       }
     }
@@ -277,7 +295,12 @@ function handleDisconnectSocket(socketId) {
     clearInterval(entry.tickTimer);
     entry.tickTimer = null;
     broadcastToRoom(entry, MSG.MATCH_EVENT, { event: "match_over", winnerId: room.winner, reason: room.winReason });
-    if (room.winner) awardCurrencyToSeat(entry, room.winner, MATCH_WIN_CURRENCY_REWARD);
+    if (room.winner) {
+      updateProfileForSeat(entry, room.winner, (id) => {
+        ProfileStore.awardCurrency(id, MATCH_WIN_CURRENCY_REWARD);
+        ProfileStore.addStats(id, { wins: 1, matchesPlayed: 1 });
+      });
+    }
   } else if (room.phase === "waiting") {
     broadcastLobbyState(sock.roomCode);
   }
@@ -455,6 +478,21 @@ function handleMessage(socketId, msg) {
       entry.room = R.rematch(entry.room);
       entry.matchState = null; // the finished match's state is no longer relevant; beginMatch() builds a fresh one
       broadcastLobbyState(sock.roomCode);
+      return;
+    }
+    case MSG.SET_DISPLAY_NAME: {
+      if (!sock.profileId) return;
+      const { profile: next, error } = Profile.setDisplayName(ProfileStore.get(sock.profileId), msg.name);
+      if (error) {
+        send(sock.ws, MSG.ERROR, { code: ERROR_CODES[error], message: "Enter a callsign (up to 16 characters)." });
+        return;
+      }
+      ProfileStore.set(sock.profileId, next);
+      send(sock.ws, MSG.PROFILE_STATE, { profile: next });
+      return;
+    }
+    case MSG.REQUEST_LEADERBOARD: {
+      send(sock.ws, MSG.LEADERBOARD_STATE, ProfileStore.getLeaderboard(sock.profileId));
       return;
     }
   }

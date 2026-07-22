@@ -15,6 +15,8 @@ export const MSG = {
   EQUIP_LOADOUT: "equip_loadout",
   PURCHASE_UPGRADE: "purchase_upgrade",
   REQUEST_REMATCH: "request_rematch",
+  SET_DISPLAY_NAME: "set_display_name",
+  REQUEST_LEADERBOARD: "request_leaderboard",
 
   // Server -> Client
   ROOM_CREATED: "room_created",
@@ -25,6 +27,7 @@ export const MSG = {
   MATCH_STATE: "match_state",
   MATCH_EVENT: "match_event",
   PROFILE_STATE: "profile_state",
+  LEADERBOARD_STATE: "leaderboard_state",
 };
 
 export const ERROR_CODES = {
@@ -39,6 +42,7 @@ export const ERROR_CODES = {
   NOT_UNLOCKED: "NOT_UNLOCKED",
   UNKNOWN_LOADOUT_ID: "UNKNOWN_LOADOUT_ID",
   MAX_LEVEL_REACHED: "MAX_LEVEL_REACHED",
+  INVALID_NAME: "INVALID_NAME",
 };
 
 export const MATCH_STARTING_COUNTDOWN_MS = 3000;

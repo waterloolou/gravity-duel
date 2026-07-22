@@ -459,6 +459,98 @@ button.secondary:disabled {
   flex-shrink: 0;
 }
 
+.leaderboard-panel {
+  max-width: 560px;
+  text-align: left;
+}
+
+.leaderboard-panel h2 {
+  text-align: center;
+}
+
+.callsign-row {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.callsign-row input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  padding: 10px;
+  border-radius: 0;
+  clip-path: polygon(6px 0, 100% 0, 100% calc(100% - 6px), calc(100% - 6px) 100%, 0 100%, 0 6px);
+  border: 1px solid var(--border);
+  background: var(--panel-alt);
+  color: var(--text);
+}
+
+.callsign-row input:focus {
+  outline: none;
+  border-color: var(--accent-2);
+  box-shadow: 0 0 10px var(--accent-2-glow);
+}
+
+.leaderboard-self {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  margin: 0 0 16px;
+}
+
+.leaderboard-list {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.leaderboard-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  clip-path: polygon(8px 0, 100% 0, 100% calc(100% - 8px), calc(100% - 8px) 100%, 0 100%, 0 8px);
+  padding: 8px 14px;
+}
+
+.leaderboard-row.is-you {
+  border-color: var(--accent);
+  box-shadow: 0 0 10px var(--accent-glow);
+}
+
+.lb-rank {
+  color: var(--muted);
+  font-weight: 700;
+  min-width: 2.5em;
+}
+
+.lb-name {
+  flex: 1;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lb-stats {
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: nowrap;
+}
+
+.leaderboard-empty {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  padding: 12px 0;
+}
+
 .player-list {
   list-style: none;
   padding: 0;

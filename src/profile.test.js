@@ -17,6 +17,8 @@ check("createDefaultProfile starts with zero currency and the free starter loado
   assert.equal(p.equippedShip, "interceptor");
   assert.equal(p.equippedWeapon, "blaster");
   assert.deepEqual(p.upgrades, { thrust: 0, heat: 0, fireRate: 0, projSpeed: 0 });
+  assert.equal(p.displayName, null);
+  assert.deepEqual(p.stats, { wins: 0, losses: 0, matchesPlayed: 0, kills: 0, deaths: 0 });
 });
 
 check("awardCurrency adds to the balance without mutating the original profile", () => {
@@ -137,6 +139,34 @@ check("purchaseUpgrade rejects an unknown stat name", () => {
   p = Profile.awardCurrency(p, 9999);
   const { error } = Profile.purchaseUpgrade(p, "not-a-real-stat");
   assert.equal(error, "UNKNOWN_LOADOUT_ID");
+});
+
+check("addStats accumulates across multiple calls without touching unrelated stats", () => {
+  let p = Profile.createDefaultProfile("abc");
+  p = Profile.addStats(p, { kills: 1 });
+  p = Profile.addStats(p, { kills: 2, deaths: 1 });
+  assert.deepEqual(p.stats, { wins: 0, losses: 0, matchesPlayed: 0, kills: 3, deaths: 1 });
+});
+
+check("addStats tolerates a profile with no stats field at all (pre-existing/persisted-before-this-feature data)", () => {
+  const legacyProfile = { ...Profile.createDefaultProfile("abc"), stats: undefined };
+  const next = Profile.addStats(legacyProfile, { wins: 1 });
+  assert.deepEqual(next.stats, { wins: 1, losses: 0, matchesPlayed: 0, kills: 0, deaths: 0 });
+});
+
+check("setDisplayName trims and length-caps the name", () => {
+  const p = Profile.createDefaultProfile("abc");
+  const { profile: next, error } = Profile.setDisplayName(p, "  Way Too Long A Callsign Honestly  ");
+  assert.equal(error, null);
+  assert.equal(next.displayName, "Way Too Long A C"); // trimmed, then capped at 16 chars
+  assert.equal(next.displayName.length, 16);
+});
+
+check("setDisplayName rejects an empty (or whitespace-only) name", () => {
+  const p = Profile.createDefaultProfile("abc");
+  const { profile: next, error } = Profile.setDisplayName(p, "   ");
+  assert.equal(error, "INVALID_NAME");
+  assert.equal(next, p);
 });
 
 console.log(`\n${passed} profile.js assertions passed`);

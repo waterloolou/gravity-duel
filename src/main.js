@@ -5,6 +5,7 @@ import { createRenderer } from "./render.js";
 import { createAudioSystem } from "./audio.js";
 import { updateHud } from "./hud.js";
 import { renderHangar } from "./hangar.js";
+import { renderLeaderboard } from "./leaderboard.js";
 
 // Registered for PWA installability (Add to Home Screen), not offline play
 // -- see sw.js's own comment for why this game specifically shouldn't try
@@ -52,6 +53,7 @@ const views = {
   home: document.getElementById("view-home"),
   lobby: document.getElementById("view-lobby"),
   hangar: document.getElementById("view-hangar"),
+  leaderboard: document.getElementById("view-leaderboard"),
   play: document.getElementById("view-play"),
 };
 function showView(name) {
@@ -73,6 +75,30 @@ document.querySelectorAll("[data-open-hangar]").forEach((btn) => {
 document.querySelector("[data-hangar-back]").addEventListener("click", () => {
   audioSystem.uiClick();
   showView(hangarReturnView);
+});
+
+const leaderboardErrorEl = document.querySelector("[data-leaderboard-error]");
+document.querySelector("[data-open-leaderboard]").addEventListener("click", () => {
+  audioSystem.uiClick();
+  const callsignInput = document.querySelector("[data-callsign-input]");
+  if (callsignInput && profile?.displayName) callsignInput.value = profile.displayName;
+  leaderboardErrorEl.textContent = "";
+  showView("leaderboard");
+  net.send(MSG.REQUEST_LEADERBOARD);
+});
+document.querySelector("[data-leaderboard-back]").addEventListener("click", () => {
+  audioSystem.uiClick();
+  showView("home");
+});
+document.querySelector("[data-save-callsign]").addEventListener("click", () => {
+  audioSystem.uiClick();
+  leaderboardErrorEl.textContent = "";
+  const name = document.querySelector("[data-callsign-input]").value;
+  net.send(MSG.SET_DISPLAY_NAME, { name });
+});
+
+net.on(MSG.LEADERBOARD_STATE, (msg) => {
+  renderLeaderboard(msg);
 });
 
 const hud = document.getElementById("hud");
@@ -250,6 +276,10 @@ net.on(MSG.PROFILE_STATE, (msg) => {
   // Re-render live so a purchase/equip click reflects immediately, without
   // needing to leave and reopen the Hangar.
   if (!views.hangar.hidden) renderHangar(profile, net);
+  // A saved callsign can change how (or whether) we show up in the ranked
+  // list -- re-fetch rather than trying to patch the already-rendered rows
+  // by hand.
+  if (!views.leaderboard.hidden) net.send(MSG.REQUEST_LEADERBOARD);
 });
 
 net.on(MSG.ROOM_CREATED, (msg) => enterLobby(msg.code, msg.playerNumber));
@@ -258,6 +288,7 @@ net.on(MSG.ROOM_JOINED, (msg) => enterLobby(msg.code, msg.playerNumber));
 net.on(MSG.ERROR, (msg) => {
   const message = msg.message ?? "Something went wrong.";
   if (!views.hangar.hidden) hangarErrorEl.textContent = message;
+  else if (!views.leaderboard.hidden) leaderboardErrorEl.textContent = message;
   else homeError.textContent = message;
 });
 
