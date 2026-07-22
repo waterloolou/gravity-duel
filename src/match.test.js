@@ -274,6 +274,101 @@ check("win is declared at exactly KILLS_TO_WIN, not one before", () => {
   assert.ok(events.some((e) => e.event === "match_over" && e.winnerId === "p2"));
 });
 
+check("createMatchState seeds one active pickup per fixed spawn point, matching physics.js's own positions", () => {
+  const state = M.createMatchState();
+  assert.equal(state.pickups.length, P.PICKUP_SPAWN_POINTS.length);
+  assert.deepEqual(
+    state.pickups.map((p) => p.type).sort(),
+    ["shield", "speed", "vent"]
+  );
+  for (const p of state.pickups) {
+    assert.equal(p.active, true);
+    assert.equal(p.respawnAt, null);
+  }
+});
+
+check("flying through the speed pickup grants a temporary boost, fires a pickup event, and puts it on cooldown", () => {
+  let state = M.createMatchState();
+  const spec = P.PICKUP_SPAWN_POINTS.find((s) => s.type === "speed");
+  state.ships.p1 = { ...state.ships.p1, pos: { ...spec.pos } };
+  const now = 10;
+  const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, now);
+  assert.equal(next.ships.p1.speedBoostUntil, now + P.PICKUP_SPEED_BOOST_DURATION);
+  const pickup = next.pickups.find((p) => p.id === spec.id);
+  assert.equal(pickup.active, false);
+  assert.equal(pickup.respawnAt, now + P.PICKUP_RESPAWN_DELAY);
+  assert.ok(events.some((e) => e.event === "pickup" && e.playerId === "p1" && e.pickupType === "speed"));
+});
+
+check("an active speed boost measurably out-accelerates an otherwise identical unboosted ship", () => {
+  const baseline = M.createMatchState();
+  const boosted = { ...baseline, ships: { ...baseline.ships, p1: { ...baseline.ships.p1, speedBoostUntil: 100 } } };
+  const { state: nextBaseline } = M.stepMatch(baseline, { p1: THRUST_INPUT, p2: NO_INPUT }, P.TICK_DT, 0);
+  const { state: nextBoosted } = M.stepMatch(boosted, { p1: THRUST_INPUT, p2: NO_INPUT }, P.TICK_DT, 0);
+  assert.ok(P.vLen(nextBoosted.ships.p1.vel) > P.vLen(nextBaseline.ships.p1.vel), "a boosted ship should accelerate harder under identical thrust input");
+});
+
+check("the speed boost stops applying the instant speedBoostUntil has passed", () => {
+  let state = M.createMatchState();
+  state.ships.p1 = { ...state.ships.p1, speedBoostUntil: 5 };
+  const { state: expired } = M.stepMatch(state, { p1: THRUST_INPUT, p2: NO_INPUT }, P.TICK_DT, 5); // now === speedBoostUntil: already expired
+  const { state: reference } = M.stepMatch(M.createMatchState(), { p1: THRUST_INPUT, p2: NO_INPUT }, P.TICK_DT, 5);
+  approx(P.vLen(expired.ships.p1.vel), P.vLen(reference.ships.p1.vel), 1e-9, "an expired boost should apply no multiplier at all");
+});
+
+check("flying through the shield pickup grants bonus invulnerability without dying/respawning", () => {
+  let state = M.createMatchState();
+  const spec = P.PICKUP_SPAWN_POINTS.find((s) => s.type === "shield");
+  state.ships.p1 = { ...state.ships.p1, pos: { ...spec.pos } };
+  const now = 10;
+  const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, now);
+  assert.equal(next.ships.p1.invulnerableUntil, now + P.PICKUP_SHIELD_DURATION);
+  // A respawn would teleport p1 back to its (far-away) spawnPos -- staying
+  // right where the pickup was is proof this didn't go through the death path.
+  const dist = P.vLen(P.vSub(next.ships.p1.pos, spec.pos));
+  assert.ok(dist < 1, "the ship should still be right where it collected the pickup, not teleported back to spawn");
+});
+
+check("a shield pickup only ever raises invulnerability, never shortens an already-longer window", () => {
+  let state = M.createMatchState();
+  const spec = P.PICKUP_SPAWN_POINTS.find((s) => s.type === "shield");
+  const now = 10;
+  state.ships.p1 = { ...state.ships.p1, pos: { ...spec.pos }, invulnerableUntil: now + 999 };
+  const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, now);
+  assert.equal(next.ships.p1.invulnerableUntil, now + 999, "an existing longer invulnerability window should not be shortened");
+});
+
+check("flying through the vent pickup instantly clears heat and overheat", () => {
+  let state = M.createMatchState();
+  const spec = P.PICKUP_SPAWN_POINTS.find((s) => s.type === "vent");
+  state.ships.p1 = { ...state.ships.p1, pos: { ...spec.pos }, heat: 95, overheated: true };
+  const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 10);
+  assert.equal(next.ships.p1.heat, 0);
+  assert.equal(next.ships.p1.overheated, false);
+});
+
+check("a collected pickup stays uncollectable through its cooldown, then reactivates instantly once it elapses", () => {
+  let state = M.createMatchState();
+  const spec = P.PICKUP_SPAWN_POINTS.find((s) => s.type === "vent");
+  state.ships.p1 = { ...state.ships.p1, pos: { ...spec.pos }, heat: 50 };
+  const now = 10;
+  let { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, now);
+  const collectedAt = next.pickups.find((p) => p.id === spec.id);
+  assert.equal(collectedAt.active, false);
+
+  // Sitting right back on top of it a tick later, while still on cooldown, must not re-trigger.
+  next.ships.p1 = { ...next.ships.p1, heat: 50, pos: { ...spec.pos } };
+  const { state: stillCooling, events: noEvents } = M.stepMatch(next, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, now + P.TICK_DT);
+  assert.notEqual(stillCooling.ships.p1.heat, 0, "should not have re-vented while the pickup is still on cooldown");
+  assert.ok(!noEvents.some((e) => e.event === "pickup"), "no pickup event should fire while on cooldown");
+
+  // Once respawnAt has passed, it reactivates and is collectible again the very same tick.
+  stillCooling.ships.p1 = { ...stillCooling.ships.p1, heat: 50, pos: { ...spec.pos } };
+  const { state: reactivated } = M.stepMatch(stillCooling, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, collectedAt.respawnAt);
+  assert.equal(reactivated.ships.p1.heat, 0, "should have vented again now that the pickup is off cooldown");
+  assert.equal(reactivated.pickups.find((p) => p.id === spec.id).active, false, "should be back on cooldown immediately after being re-collected");
+});
+
 check("stepMatch is a no-op once a winner is set", () => {
   let state = M.createMatchState();
   state.winner = "p1";

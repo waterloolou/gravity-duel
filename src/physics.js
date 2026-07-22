@@ -76,6 +76,29 @@ export const MOON_SPECS = [
   { name: "moonC", orbitRadius: 420, period: 96, radius: 20, mu: 450_000, phase: Math.PI * 0.15, inclination: 0.6 },
 ];
 
+// Arena pickups: fixed-position collectibles (not orbiting, unlike moons)
+// that grant a temporary tactical buff on contact, then go on cooldown
+// before reappearing at the same spot. Three types, one fixed spawn point
+// each -- a player learns the map ("shield sits north of the well") rather
+// than chasing something that moves or reshuffles every match.
+export const PICKUP_RADIUS = 12;
+export const PICKUP_RESPAWN_DELAY = 14; // seconds after being collected before it reappears
+export const PICKUP_SPEED_BOOST_DURATION = 5; // seconds
+export const PICKUP_SPEED_BOOST_MULT = 1.6; // multiplies thrustAccel AND maxSpeed while active
+export const PICKUP_SHIELD_DURATION = 4; // seconds of bonus invulnerability (extends the ship's existing invulnerableUntil)
+
+// Placed at radius 130 from the well: well outside WELL_RADIUS (40, so no
+// risk of overlapping the kill sphere) but comfortably inside the nearest
+// moon's orbit (moonA at a constant 190 from the well, see moonPosition's
+// own comment on why that distance never varies) -- reaching one means
+// diving toward the gravity well's danger zone, not hugging the safe outer
+// arena edge where ships spawn (SPAWN_RADIUS 350).
+export const PICKUP_SPAWN_POINTS = [
+  { id: "pickupSpeed", type: "speed", pos: { x: 130, y: 0, z: 0 } },
+  { id: "pickupShield", type: "shield", pos: { x: -65, y: 0, z: 112.583 } },
+  { id: "pickupVent", type: "vent", pos: { x: -65, y: 0, z: -112.583 } },
+];
+
 // --- vec3 helpers -----------------------------------------------------
 
 export function vAdd(a, b) {

@@ -76,6 +76,27 @@ export function createAudioSystem() {
     boom.stop(t + 0.5);
   }
 
+  function pickup() {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    // A quick two-note upward chime -- distinct from fire()'s downward
+    // sawtooth sweep and explosion()'s low boom, so a pickup reads as a
+    // reward, not another combat sound.
+    [660, 990].forEach((freq, i) => {
+      const start = t + i * 0.07;
+      const osc = ctx.createOscillator();
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(freq, start);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.2, start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16);
+      osc.connect(gain).connect(masterGain);
+      osc.start(start);
+      osc.stop(start + 0.18);
+    });
+  }
+
   function uiClick() {
     if (!ctx) return;
     const t = ctx.currentTime;
@@ -149,5 +170,5 @@ export function createAudioSystem() {
     }
   }
 
-  return { resume, fire, explosion, uiClick, countdownTick, matchOverStinger, setThrusting };
+  return { resume, fire, explosion, pickup, uiClick, countdownTick, matchOverStinger, setThrusting };
 }

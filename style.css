@@ -727,6 +727,18 @@ button.secondary:disabled {
   50% { opacity: 1; }
 }
 
+.boost-badge {
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #fff;
+  background: rgba(255, 224, 102, 0.25);
+  border: 1px solid #ffe066;
+  padding: 4px 12px;
+  border-radius: 999px;
+  animation: shield-pulse 1.1s ease-in-out infinite;
+}
+
 .kill-feed {
   position: absolute;
   top: 16px;

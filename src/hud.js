@@ -50,6 +50,9 @@ export function updateHud(hudEl, { connection, selfId, matchState, roomPhase, wi
     const shieldBadge = hudEl.querySelector("[data-shield-badge]");
     if (shieldBadge) shieldBadge.hidden = !self?.invulnerable;
 
+    const boostBadge = hudEl.querySelector("[data-boost-badge]");
+    if (boostBadge) boostBadge.hidden = !self?.speedBoosted;
+
     const heatGauge = hudEl.querySelector("[data-heat-gauge]");
     if (heatGauge && self) {
       const pct = Math.max(0, Math.min(100, (self.heat / MAX_HEAT) * 100));

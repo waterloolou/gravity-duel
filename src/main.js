@@ -1,4 +1,5 @@
 import { MSG } from "../protocol.js";
+import * as P from "./physics.js";
 import { createNetClient, INTERPOLATION_DELAY_MS } from "./net.js";
 import { createInputController } from "./input.js";
 import { createRenderer } from "./render.js";
@@ -369,12 +370,20 @@ net.on(MSG.MATCH_STARTING, (msg) => {
 let latestSelf = null;
 let latestShips = null; // full snapshot (all players, self included), for looking up any victim's position
 let latestTick = 0;
+let latestPickups = null;
 let gameRenderer = null;
 // Module-level (not local to startGameLoop's loop()) so MATCH_STARTING can
 // reset it -- a rematch's fresh match assigns a brand-new spawn facing, and
 // without this reset the input controller would stay pointed wherever the
 // PREVIOUS match's ship happened to be aiming when it ended.
 let aimInitialized = false;
+
+// Mirrors render.js's own PICKUP_COLORS palette -- kept as a separate
+// module-level copy rather than importing it, since render.js doesn't
+// export its internal color constants (main.js only needs these two for
+// the pickup-collected VFX/kill-feed text, not the full renderer).
+const PICKUP_EVENT_COLORS = { speed: 0xffe066, shield: 0x4fd1ff, vent: 0xff7a3d };
+const PICKUP_LABELS = { speed: "Speed boost", shield: "Shield", vent: "Heat vent" };
 
 net.on(MSG.MATCH_EVENT, (msg) => {
   if (msg.event === "hit" || msg.event === "well_death" || msg.event === "moon_death") {
@@ -392,6 +401,14 @@ net.on(MSG.MATCH_EVENT, (msg) => {
       }
       if (msg.event === "hit" && msg.killerId === selfId) gameRenderer?.triggerShake(0.25);
     }
+    return;
+  }
+
+  if (msg.event === "pickup") {
+    audioSystem.pickup();
+    const pos = P.PICKUP_SPAWN_POINTS.find((s) => s.id === msg.pickupId)?.pos;
+    if (pos) gameRenderer?.spawnExplosion(pos, PICKUP_EVENT_COLORS[msg.pickupType] ?? 0xffffff);
+    if (msg.playerId === selfId) pushKillFeed(`${PICKUP_LABELS[msg.pickupType] ?? "Pickup"} collected!`);
     return;
   }
 
@@ -515,7 +532,7 @@ function startGameLoop() {
   // (setAim/setInput) with read access to the authoritative self-ship state,
   // so an external script can drive a closed-loop maneuver (e.g. home in on
   // a known target position) without needing DOM/canvas pixel inspection.
-  window.__testHooks.debugState = () => ({ self: latestSelf, ships: latestShips, tick: latestTick, inputState: input.getState() });
+  window.__testHooks.debugState = () => ({ self: latestSelf, ships: latestShips, tick: latestTick, pickups: latestPickups, inputState: input.getState() });
 
   function loop() {
     requestAnimationFrame(loop);
@@ -552,6 +569,7 @@ function startGameLoop() {
     if (snap && selfId) {
       latestShips = snap.ships;
       latestTick = snap.tick;
+      latestPickups = snap.pickups;
       if (self) {
         renderer.updateCamera(self, inputState.thirdPerson, inputState.thrusting);
         renderer.updateTrajectoryPreview(self, inputState.thrusting, snap.tick);
@@ -559,6 +577,7 @@ function startGameLoop() {
       renderer.updateOpponents(snap.ships, selfId);
       renderer.updateProjectiles(snap.projectiles, selfId, () => audioSystem.fire());
       renderer.updateMoons(snap.tick);
+      renderer.updatePickups(snap.pickups);
       updateHud(hud, { connection: "connected", selfId, matchState: snap, roomPhase, winner });
     }
 

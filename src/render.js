@@ -15,6 +15,7 @@ const TRAJECTORY_PREVIEW_TICKS = 120; // ~4s forward, purely visual -- never aff
 const OWN_COLOR = 0x5be8ff;
 const ENEMY_COLOR = 0xff3d5a;
 const WELL_COLOR = 0xffb454;
+const PICKUP_COLORS = { speed: 0xffe066, shield: 0x4fd1ff, vent: 0xff7a3d };
 
 function makeCanvasTexture(size, draw) {
   const canvas = document.createElement("canvas");
@@ -185,6 +186,28 @@ function buildMoonMeshes() {
     );
     return mesh;
   });
+}
+
+// One glowing octahedron per physics.js's PICKUP_SPAWN_POINTS, fixed in
+// place (unlike moons, pickups don't orbit) and color-coded by type. Kept in
+// a map keyed by pickup id, not an array, since updatePickups matches the
+// server snapshot's pickups (also id-keyed) back to these meshes every frame.
+function buildPickupMeshes() {
+  const geo = new THREE.OctahedronGeometry(10, 0);
+  const entries = {};
+  for (const spec of P.PICKUP_SPAWN_POINTS) {
+    const mat = new THREE.MeshBasicMaterial({
+      color: PICKUP_COLORS[spec.type],
+      transparent: true,
+      opacity: 0.85,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.position.set(spec.pos.x, spec.pos.y, spec.pos.z);
+    entries[spec.id] = { mesh, mat };
+  }
+  return entries;
 }
 
 // A "blaster bolt" built from three parts sharing the same lookAt-safe
@@ -378,6 +401,17 @@ export function createRenderer(canvas, selfEngineColor = 0xffffff) {
       moonMeshes[i].position.set(pos.x, pos.y, pos.z);
       moonMeshes[i].rotation.y += 0.002 * (i + 1); // slow self-spin, purely cosmetic
     });
+  }
+
+  // Fixed-position pickups (see physics.js's PICKUP_SPAWN_POINTS) -- position
+  // never changes, so unlike updateMoons this only needs to track
+  // active/inactive from the latest server snapshot. The actual per-frame
+  // rotate/pulse animation happens in render() below, from latestPickups.
+  const pickupMeshes = buildPickupMeshes();
+  for (const { mesh } of Object.values(pickupMeshes)) scene.add(mesh);
+  let latestPickups = [];
+  function updatePickups(pickups) {
+    latestPickups = pickups ?? [];
   }
 
   // All ships share the same geometry set. The local player's own ship is
@@ -661,6 +695,16 @@ export function createRenderer(canvas, selfEngineColor = 0xffffff) {
     wellMesh.scale.setScalar(1 + 0.03 * Math.sin(elapsed * 2.2));
     coronaMesh.scale.setScalar(1 + 0.06 * Math.sin(elapsed * 1.5));
 
+    for (const p of latestPickups) {
+      const entry = pickupMeshes[p.id];
+      if (!entry) continue;
+      entry.mesh.rotation.y = elapsed * 1.4;
+      entry.mesh.rotation.x = elapsed * 0.9;
+      const pulse = 1 + 0.18 * Math.sin(elapsed * 3.2);
+      entry.mesh.scale.setScalar(p.active ? pulse : 0.45); // shrinks and dims while on cooldown, instead of vanishing outright
+      entry.mat.opacity = p.active ? 0.85 : 0.15;
+    }
+
     updateMuzzleFlashes(dt);
     updateExplosions(dt);
 
@@ -691,6 +735,7 @@ export function createRenderer(canvas, selfEngineColor = 0xffffff) {
     updateProjectiles,
     updateTrajectoryPreview,
     updateMoons,
+    updatePickups,
     spawnExplosion,
     triggerShake,
     setLocalThrust,

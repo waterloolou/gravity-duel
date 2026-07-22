@@ -201,6 +201,7 @@ function serializeMatchState(state, now) {
       heat: s.heat,
       overheated: !!s.overheated,
       engineColor: s.engineColor,
+      speedBoosted: now < s.speedBoostUntil,
     };
   }
   return {
@@ -213,6 +214,10 @@ function serializeMatchState(state, now) {
       pos: [p.pos.x, p.pos.y, p.pos.z],
       vel: [p.vel.x, p.vel.y, p.vel.z],
     })),
+    // type/pos are included even while on cooldown (active: false) so the
+    // client can render a dimmed marker instead of nothing -- players learn
+    // the map faster if a cooling-down pickup still shows what/where it is.
+    pickups: state.pickups.map((p) => ({ id: p.id, type: p.type, pos: [p.pos.x, p.pos.y, p.pos.z], active: p.active })),
     winner: state.winner,
   };
 }

@@ -45,12 +45,16 @@ function interpolateState(a, b, t) {
       heat: lerp(sa.heat, sb.heat, t), // smoothed, so the HUD gauge doesn't visibly step at 30Hz
       overheated: sb.overheated,
       engineColor: sb.engineColor, // cosmetic, fixed for a ship's whole lifetime -- snaps like invulnerable/thrusting, no reason to interpolate a color
+      speedBoosted: sb.speedBoosted,
     };
   }
   // Projectiles are numerous and transient; rendering the latest snapshot's
   // raw positions (no interpolation) is a reasonable simplification at 30Hz
   // on localhost -- revisit only if this is ever deployed over real internet.
-  return { tick: b.tick, playerIds: b.playerIds, ships, projectiles: b.projectiles, winner: b.winner };
+  // Pickups are fixed-position and only ever toggle active/inactive on a
+  // multi-second cooldown -- snapping to `b`'s array wholesale is exactly
+  // right, there's nothing meaningful to interpolate between two ticks.
+  return { tick: b.tick, playerIds: b.playerIds, ships, projectiles: b.projectiles, pickups: b.pickups, winner: b.winner };
 }
 
 export function createNetClient(url) {

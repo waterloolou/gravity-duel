@@ -52,7 +52,15 @@ export function createShip(id, spawnPos, stats = P.DEFAULT_SHIP_STATS, engineCol
     overheated: false,
     stats,
     engineColor,
+    speedBoostUntil: 0,
   };
+}
+
+// One state entry per physics.js's PICKUP_SPAWN_POINTS, all active at match
+// start. `type`/`pos` never change over a pickup's lifetime -- only
+// `active`/`respawnAt` toggle, as ships collect and it cools down.
+function createPickups() {
+  return P.PICKUP_SPAWN_POINTS.map((spec) => ({ id: spec.id, type: spec.type, pos: spec.pos, active: true, respawnAt: null }));
 }
 
 // `loadouts` is an optional { [playerId]: statsObject } map and `cosmetics`
@@ -74,6 +82,7 @@ export function createMatchState(playerIds = ["p1", "p2"], loadouts = {}, cosmet
     ships,
     projectiles: [],
     nextProjectileId: 1,
+    pickups: createPickups(),
     winner: null,
   };
 }
@@ -107,7 +116,18 @@ function respawn(ship, now) {
     thrusting: false,
     heat: 0,
     overheated: false,
+    speedBoostUntil: 0,
   };
+}
+
+// A speed pickup temporarily scales thrustAccel/maxSpeed together (not just
+// top speed alone) so the burst actually feels like an acceleration surge,
+// not just a higher speed cap the ship might not reach in time to matter.
+// Heat mechanics are untouched -- effectiveStats is only ever passed to
+// integrateShip, never to updateHeat below.
+function effectiveStats(ship, now) {
+  if (now >= ship.speedBoostUntil) return ship.stats;
+  return { ...ship.stats, thrustAccel: ship.stats.thrustAccel * P.PICKUP_SPEED_BOOST_MULT, maxSpeed: ship.stats.maxSpeed * P.PICKUP_SPEED_BOOST_MULT };
 }
 
 // Heat rises while the engine is actually firing (thrust request AND not
@@ -153,7 +173,7 @@ export function stepMatch(state, inputs, dt, now) {
     // just cosmetically after, so overheat actually stops acceleration.
     const { effectiveThrusting, heat, overheated } = updateHeat(ship, !!input.thrusting, dt);
     const gatedInput = { ...input, thrusting: effectiveThrusting };
-    movedShips[id] = { ...ship, ...P.integrateShip(ship, dt, gatedInput, simTime, ship.stats), thrusting: effectiveThrusting, heat, overheated };
+    movedShips[id] = { ...ship, ...P.integrateShip(ship, dt, gatedInput, simTime, effectiveStats(ship, now)), thrusting: effectiveThrusting, heat, overheated };
   }
 
   // 2. Fire (after movement, from each ship's new position/orientation).
@@ -242,6 +262,26 @@ export function stepMatch(state, inputs, dt, now) {
     }
   }
 
+  // 4b. Pickups. Reactivate anything whose cooldown has elapsed BEFORE
+  // testing collisions this tick, so a pickup can be collected the instant
+  // it reappears rather than one tick late. Detection-only here, same as
+  // step 4 above -- reads prevShipPos/movedShips/state.pickups, never
+  // mutates; step 5 applies the effects.
+  const readyPickups = state.pickups.map((p) => (!p.active && p.respawnAt !== null && now >= p.respawnAt ? { ...p, active: true, respawnAt: null } : p));
+  const collectedPickupIds = new Set();
+  const pickupEffects = {}; // shipId -> pickup type
+  for (const id of state.playerIds) {
+    const ship = movedShips[id];
+    for (const pickup of readyPickups) {
+      if (!pickup.active || collectedPickupIds.has(pickup.id)) continue;
+      if (!P.sweptSphereHit(prevShipPos[id], ship.pos, P.SHIP_RADIUS, pickup.pos, pickup.pos, P.PICKUP_RADIUS)) continue;
+      collectedPickupIds.add(pickup.id);
+      pickupEffects[id] = pickup.type;
+      events.push({ event: "pickup", playerId: id, pickupId: pickup.id, pickupType: pickup.type });
+    }
+  }
+  const resolvedPickups = readyPickups.map((p) => (collectedPickupIds.has(p.id) ? { ...p, active: false, respawnAt: now + P.PICKUP_RESPAWN_DELAY } : p));
+
   // 5. Resolve.
   const resolvedShips = {};
   for (const id of state.playerIds) {
@@ -250,6 +290,21 @@ export function stepMatch(state, inputs, dt, now) {
   for (const e of events) {
     if (e.event === "hit" && resolvedShips[e.killerId]) {
       resolvedShips[e.killerId] = { ...resolvedShips[e.killerId], kills: resolvedShips[e.killerId].kills + 1 };
+    }
+  }
+
+  // Applied AFTER death/respawn resolution, not before -- a pickup grabbed
+  // in the same tick a ship would otherwise have died wins (e.g. diving
+  // through the shield right as you'd clip the well), which reads as a
+  // satisfying last-instant save rather than a wasted pickup.
+  for (const [id, type] of Object.entries(pickupEffects)) {
+    if (!resolvedShips[id]) continue;
+    if (type === "speed") {
+      resolvedShips[id] = { ...resolvedShips[id], speedBoostUntil: now + P.PICKUP_SPEED_BOOST_DURATION };
+    } else if (type === "shield") {
+      resolvedShips[id] = { ...resolvedShips[id], invulnerableUntil: Math.max(resolvedShips[id].invulnerableUntil, now + P.PICKUP_SHIELD_DURATION) };
+    } else if (type === "vent") {
+      resolvedShips[id] = { ...resolvedShips[id], heat: 0, overheated: false };
     }
   }
 
@@ -279,6 +334,7 @@ export function stepMatch(state, inputs, dt, now) {
       ships: resolvedShips,
       projectiles: survivingProjectiles,
       nextProjectileId,
+      pickups: resolvedPickups,
       winner,
     },
     events,
