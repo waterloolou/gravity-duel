@@ -91,6 +91,28 @@ function broadcastToRoom(entry, type, payload = {}) {
     const sock = sockets.get(player.socketId);
     if (sock) send(sock.ws, type, payload);
   }
+  for (const socketId of entry.room.spectators) {
+    const sock = sockets.get(socketId);
+    if (sock) send(sock.ws, type, payload);
+  }
+}
+
+// Pulls any waiting spectators into seats that just opened up (a pre-match
+// disconnect compacting the roster, or a rematch resetting the lobby) --
+// see room.js's promoteSpectators for the FIFO/phase rules. Callers are
+// responsible for broadcasting the resulting LOBBY_STATE afterward; this
+// only updates each promoted socket's own playerId and tells them directly.
+function promoteWaitingSpectators(code) {
+  const entry = rooms.get(code);
+  if (!entry) return;
+  const { room, promoted } = R.promoteSpectators(entry.room);
+  entry.room = room;
+  for (const { socketId, playerId } of promoted) {
+    const sock = sockets.get(socketId);
+    if (!sock) continue;
+    sock.playerId = playerId;
+    send(sock.ws, MSG.ROOM_JOINED, { code, playerNumber: playerId });
+  }
 }
 
 function lobbyStatePayload(room) {
@@ -298,6 +320,12 @@ function handleDisconnectSocket(socketId) {
     entry.startTimer = null;
   }
   if (deleted) {
+    // The last PLAYER just left (deleted is never true for a spectator
+    // disconnect -- see room.js's handleDisconnect), but a spectator or two
+    // might still be sitting here watching an empty room. Let them know
+    // rather than just going silent on them.
+    entry.room = room;
+    broadcastToRoom(entry, MSG.MATCH_EVENT, { event: "room_closed" });
     if (entry.tickTimer) clearInterval(entry.tickTimer);
     rooms.delete(sock.roomCode);
     return;
@@ -309,8 +337,12 @@ function handleDisconnectSocket(socketId) {
   if (wasActive && room.phase === "active") {
     // Free-for-all continues with fewer players -- drop their ship from the
     // live sim and let everyone remaining know why an opponent just vanished.
-    entry.matchState = M.removePlayer(entry.matchState, disconnectedId);
-    broadcastToRoom(entry, MSG.MATCH_EVENT, { event: "player_left", playerId: disconnectedId });
+    // disconnectedId is null for a spectator leaving (nothing to remove from
+    // the live sim, and no one needs telling) -- see room.js's handleDisconnect.
+    if (disconnectedId) {
+      entry.matchState = M.removePlayer(entry.matchState, disconnectedId);
+      broadcastToRoom(entry, MSG.MATCH_EVENT, { event: "player_left", playerId: disconnectedId });
+    }
   } else if (room.phase === "over" && entry.tickTimer) {
     clearInterval(entry.tickTimer);
     entry.tickTimer = null;
@@ -322,6 +354,10 @@ function handleDisconnectSocket(socketId) {
       });
     }
   } else if (room.phase === "waiting") {
+    // A pre-match disconnect can compact the roster down and open a seat --
+    // pull in the longest-waiting spectator (if any) before broadcasting,
+    // so LOBBY_STATE reflects the promotion in one go instead of flickering.
+    promoteWaitingSpectators(sock.roomCode);
     broadcastLobbyState(sock.roomCode);
   }
 }
@@ -347,6 +383,20 @@ function createNewRoom(socketId, sock) {
 function joinExistingRoom(code, socketId, sock) {
   const entry = rooms.get(code);
   const { room, error, playerId } = R.joinRoom(entry.room, socketId);
+  // A full/starting/active room (ROOM_FULL) doesn't have to be a dead end --
+  // fall back to spectating instead of just bouncing them with an error.
+  // ROOM_ALREADY_OVER stays a hard error: a finished room has nothing live
+  // left to watch.
+  if (error === "ROOM_FULL") {
+    entry.room = R.addSpectator(entry.room, socketId);
+    sock.roomCode = code;
+    sock.playerId = null;
+    send(sock.ws, MSG.SPECTATING, { code, playerIds: R.activePlayerIds(entry.room) });
+    // Don't make them wait for the next tick if a match is already live --
+    // hand them the current snapshot immediately.
+    if (entry.matchState) send(sock.ws, MSG.MATCH_STATE, serializeMatchState(entry.matchState, Date.now() / 1000));
+    return;
+  }
   if (error) {
     send(sock.ws, MSG.ERROR, { code: error, message: "That room can't be joined right now." });
     return;
@@ -494,9 +544,10 @@ function handleMessage(socketId, msg) {
     }
     case MSG.REQUEST_REMATCH: {
       const entry = rooms.get(sock.roomCode);
-      if (!entry || entry.room.phase !== "over") return;
+      if (!entry || !sock.playerId || entry.room.phase !== "over") return; // a spectator has no seat to request a rematch on behalf of
       entry.room = R.rematch(entry.room);
       entry.matchState = null; // the finished match's state is no longer relevant; beginMatch() builds a fresh one
+      promoteWaitingSpectators(sock.roomCode); // rematch can reopen a seat if the previous roster had fewer than MAX_PLAYERS
       broadcastLobbyState(sock.roomCode);
       return;
     }

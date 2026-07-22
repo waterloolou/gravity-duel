@@ -247,7 +247,7 @@ function createBoltVisual(boltGeo, mats) {
   return group;
 }
 
-function createShipModel(geo, hullColor, engineColor) {
+function createShipModel(geo, hullColor, initialEngineColor) {
   const group = new THREE.Group();
 
   const hullMat = new THREE.MeshBasicMaterial({ color: hullColor });
@@ -261,6 +261,13 @@ function createShipModel(geo, hullColor, engineColor) {
   const wingL = new THREE.Mesh(geo.wingL, wingMat);
   const wingR = new THREE.Mesh(geo.wingR, wingMat);
 
+  // Mutable (not just the constructor arg) so setEngineColor below can
+  // update it later -- needed for the spectator camera, which reuses this
+  // SAME self-ship-model instance (built once at renderer creation, from
+  // the LOCAL viewer's own equipped cosmetic) to represent whichever
+  // player's ship it's currently following, each of whom may have a
+  // different one equipped.
+  let engineColor = initialEngineColor;
   const engineMat = new THREE.MeshBasicMaterial({
     color: engineColor,
     transparent: true,
@@ -299,6 +306,11 @@ function createShipModel(geo, hullColor, engineColor) {
       if (overheated === isOverheated) return;
       isOverheated = overheated;
       engineMat.color.set(overheated ? 0xff3d5a : engineColor);
+    },
+    setEngineColor(color) {
+      if (color === engineColor) return;
+      engineColor = color;
+      if (!isOverheated) engineMat.color.set(engineColor);
     },
   };
 }
@@ -569,6 +581,10 @@ export function createRenderer(canvas, selfEngineColor = 0xffffff) {
       selfShipModel.setInvulnerable(!!selfShip.invulnerable);
       selfShipModel.setThrusting(!!thrusting);
       selfShipModel.setOverheated(!!selfShip.overheated);
+      // A no-op for a normal player (always their own equipped color) --
+      // only matters for the spectator camera, which reuses this same
+      // model to represent whichever ship it's currently following.
+      if (selfShip.engineColor !== undefined) selfShipModel.setEngineColor(selfShip.engineColor);
 
       const chaseOffset = facing.clone().multiplyScalar(-CHASE_DISTANCE);
       chaseOffset.y += CHASE_HEIGHT;

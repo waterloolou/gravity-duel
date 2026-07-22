@@ -25,6 +25,8 @@ let winner = null;
 let winReason = null;
 let profile = null;
 let currentRoomCode = null;
+let isSpectator = false;
+let spectateTargetId = null; // which player's ship the spectator camera is currently following
 
 // A friend's shared invite link (?room=ABCD) -- read once at load, then
 // stripped from the URL immediately (history.replaceState) so a page
@@ -54,6 +56,7 @@ function getOrCreatePlayerId() {
 const views = {
   home: document.getElementById("view-home"),
   lobby: document.getElementById("view-lobby"),
+  spectateWait: document.getElementById("view-spectate-wait"),
   hangar: document.getElementById("view-hangar"),
   leaderboard: document.getElementById("view-leaderboard"),
   play: document.getElementById("view-play"),
@@ -116,6 +119,29 @@ const matchOverScoreEl = document.querySelector("[data-match-over-score]");
 const playAgainBtn = document.querySelector("[data-play-again]");
 const killFeedEl = document.querySelector("[data-kill-feed]");
 const damageFlashEl = document.querySelector("[data-damage-flash]");
+const spectateBadgeEl = document.querySelector("[data-spectate-badge]");
+const spectateHintEl = document.querySelector("[data-spectate-hint]");
+const spectateNextBtn = document.querySelector("[data-spectate-next]");
+
+// Cycles the spectator camera to the next player in the current roster --
+// wraps around, and just no-ops (nothing to cycle to) outside spectate mode
+// or with only one ship left in the match.
+function cycleSpectateTarget() {
+  if (!isSpectator || !latestShips) return;
+  const ids = Object.keys(latestShips);
+  if (ids.length < 2) return;
+  const i = ids.indexOf(spectateTargetId);
+  spectateTargetId = ids[(i + 1) % ids.length];
+}
+spectateNextBtn?.addEventListener("click", () => {
+  audioSystem.uiClick();
+  cycleSpectateTarget();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.code !== "Tab" || !isSpectator) return;
+  e.preventDefault(); // Tab would otherwise shift focus off the canvas
+  cycleSpectateTarget();
+});
 
 function pushKillFeed(message) {
   const item = document.createElement("div");
@@ -221,14 +247,17 @@ readyBtn.addEventListener("click", () => {
   net.send(MSG.SET_READY, { ready: true });
 });
 
+// Shared by every "Leave" button (match-over banner, spectate-wait screen)
+// -- a full reload is a completely reliable reset, no need to hand-unwind
+// VFX/audio/game-loop state for a path that's leaving the room entirely.
+function leaveRoomAndReload() {
+  net.send(MSG.LEAVE_ROOM);
+  location.reload();
+}
+
 playAgainBtn.addEventListener("click", () => {
   audioSystem.uiClick();
-  net.send(MSG.LEAVE_ROOM);
-  // "Leave" (as opposed to "Rematch" below) intentionally goes all the way
-  // back to the anonymous home screen -- a full reload is a completely
-  // reliable reset for that, no need to hand-unwind VFX/audio/game-loop
-  // state for a path that's leaving the room entirely anyway.
-  location.reload();
+  leaveRoomAndReload();
 });
 
 document.querySelector("[data-rematch]").addEventListener("click", () => {
@@ -236,10 +265,22 @@ document.querySelector("[data-rematch]").addEventListener("click", () => {
   net.send(MSG.REQUEST_REMATCH);
 });
 
+const spectateRoomCodeEl = document.querySelector("[data-spectate-room-code]");
+const spectateStatusEl = document.querySelector("[data-spectate-status]");
+document.querySelector("[data-spectate-leave]")?.addEventListener("click", () => {
+  audioSystem.uiClick();
+  leaveRoomAndReload();
+});
+
 let playersInRoom = 1; // creating/joining always seats the local player immediately
 
 function enterLobby(code, playerNumber) {
   selfId = playerNumber;
+  // Also reached when a waiting spectator gets promoted into an opened
+  // seat (server sends the same ROOM_JOINED message for that) -- clear the
+  // flag so the game loop stops treating them as a camera-only viewer.
+  isSpectator = false;
+  spectateTargetId = null;
   roomPhase = "lobby";
   currentRoomCode = code;
   roomCodeEl.textContent = code;
@@ -286,6 +327,23 @@ net.on(MSG.PROFILE_STATE, (msg) => {
 
 net.on(MSG.ROOM_CREATED, (msg) => enterLobby(msg.code, msg.playerNumber));
 net.on(MSG.ROOM_JOINED, (msg) => enterLobby(msg.code, msg.playerNumber));
+
+// Sent instead of ROOM_JOINED when the room we tried to join was already
+// full/in-progress -- see room.js's addSpectator. If a match is already
+// live, the server follows this immediately with a MATCH_STATE snapshot,
+// so the MATCH_STATE handler below takes it from here into the play view;
+// otherwise this screen just sits and waits for MATCH_STARTING.
+net.on(MSG.SPECTATING, (msg) => {
+  selfId = null;
+  isSpectator = true;
+  spectateTargetId = msg.playerIds?.[0] ?? null;
+  roomPhase = "spectating";
+  currentRoomCode = msg.code;
+  hud.dataset.roomCodeHud = msg.code;
+  if (spectateRoomCodeEl) spectateRoomCodeEl.textContent = msg.code;
+  if (spectateStatusEl) spectateStatusEl.textContent = "Waiting for the match to start…";
+  showView("spectateWait");
+});
 
 net.on(MSG.ERROR, (msg) => {
   const message = msg.message ?? "Something went wrong.";
@@ -341,6 +399,11 @@ net.on(MSG.LOBBY_STATE, (msg) => {
 let countdownTimer = null;
 net.on(MSG.MATCH_STARTING, (msg) => {
   roomPhase = "starting";
+  // A spectator who joined a still-full-but-not-yet-started room sits on
+  // the spectate-wait screen (not the lobby) while this countdown runs --
+  // the ticking number below updates the (currently hidden, for them)
+  // lobby countdown regardless, so give them their own one-line heads-up.
+  if (isSpectator && spectateStatusEl) spectateStatusEl.textContent = "Match starting…";
   if (countdownTimer) clearInterval(countdownTimer);
   let secondsLeft = Math.ceil(msg.countdownMs / 1000);
   lobbyStatusEl.textContent = "Get ready…";
@@ -417,16 +480,36 @@ net.on(MSG.MATCH_EVENT, (msg) => {
     return;
   }
 
+  // Only ever reaches a spectator in practice -- the room is only deleted
+  // once every seated PLAYER has left (see room.js's handleDisconnect), by
+  // which point any real player would already be long gone themselves.
+  // Without this, a spectator watching an emptied-out room would just sit
+  // on a frozen screen forever with no explanation.
+  if (msg.event === "room_closed") {
+    pushKillFeed("Room closed.");
+    setTimeout(leaveRoomAndReload, 1200);
+    return;
+  }
+
   if (msg.event === "match_over") {
     roomPhase = "over";
     winner = msg.winnerId;
     winReason = msg.reason ?? "won";
-    const youWon = winner === selfId;
+    const youWon = !isSpectator && winner === selfId;
 
-    matchOverText.textContent = youWon ? "VICTORY" : winner ? "DEFEAT" : "MATCH OVER";
+    if (isSpectator) {
+      matchOverText.textContent = winner ? `${playerLabel(winner)} WINS` : "MATCH OVER";
+    } else {
+      matchOverText.textContent = youWon ? "VICTORY" : winner ? "DEFEAT" : "MATCH OVER";
+    }
+
     let scoreLine;
     if (winReason === "opponent_disconnected") {
-      scoreLine = youWon ? "Everyone else disconnected." : winner ? "You disconnected — match forfeited." : "Everyone disconnected.";
+      if (isSpectator) {
+        scoreLine = winner ? "Everyone else disconnected." : "Everyone disconnected.";
+      } else {
+        scoreLine = youWon ? "Everyone else disconnected." : winner ? "You disconnected — match forfeited." : "Everyone disconnected.";
+      }
     } else if (msg.finalScore) {
       scoreLine = Object.entries(msg.finalScore)
         .map(([id, kills]) => `${playerLabel(id)} ${kills}`)
@@ -435,6 +518,12 @@ net.on(MSG.MATCH_EVENT, (msg) => {
       scoreLine = "";
     }
     matchOverScoreEl.textContent = scoreLine;
+
+    // A spectator has no seat to request a rematch on behalf of (see the
+    // matching server-side guard on REQUEST_REMATCH) -- hide the button
+    // rather than let them click something that silently does nothing.
+    const rematchBtn = document.querySelector("[data-rematch]");
+    if (rematchBtn) rematchBtn.hidden = isSpectator;
 
     matchOverBanner.hidden = false;
     audioSystem.setThrusting(false);
@@ -532,7 +621,15 @@ function startGameLoop() {
   // (setAim/setInput) with read access to the authoritative self-ship state,
   // so an external script can drive a closed-loop maneuver (e.g. home in on
   // a known target position) without needing DOM/canvas pixel inspection.
-  window.__testHooks.debugState = () => ({ self: latestSelf, ships: latestShips, tick: latestTick, pickups: latestPickups, inputState: input.getState() });
+  window.__testHooks.debugState = () => ({
+    self: latestSelf,
+    ships: latestShips,
+    tick: latestTick,
+    pickups: latestPickups,
+    inputState: input.getState(),
+    isSpectator,
+    spectateTargetId,
+  });
 
   function loop() {
     requestAnimationFrame(loop);
@@ -540,45 +637,74 @@ function startGameLoop() {
 
     const renderTime = now - INTERPOLATION_DELAY_MS;
     const snap = net.sampleAt(renderTime);
-    const self = snap && selfId ? snap.ships[selfId] : null;
+
+    // A spectator has no ship of their own -- renderId stands in for selfId
+    // everywhere below (camera target, "self" ship model, HUD highlight),
+    // pointed at whichever player they're currently following. Re-picks
+    // automatically if that target disconnects or a fresh match starts a
+    // new roster, rather than freezing on a ghost id forever.
+    if (isSpectator && snap && (!spectateTargetId || !snap.playerIds.includes(spectateTargetId))) {
+      spectateTargetId = snap.playerIds[0] ?? null;
+    }
+    const renderId = selfId ?? (isSpectator ? spectateTargetId : null);
+    const self = snap && renderId ? snap.ships[renderId] : null;
+
+    // Only touches the DOM on an actual mode change (spectator this frame
+    // vs last) -- covers a spectator getting promoted mid-session, where
+    // startGameLoop()'s one-time setup has already long since run and can't
+    // be relied on to reflect the switch back to normal play.
+    if (hud.dataset.spectating !== String(isSpectator)) {
+      hud.dataset.spectating = String(isSpectator);
+      if (spectateBadgeEl) spectateBadgeEl.hidden = !isSpectator;
+      if (spectateHintEl) spectateHintEl.hidden = !isSpectator;
+      if (spectateNextBtn) spectateNextBtn.hidden = !isSpectator;
+    }
 
     // The server assigns each ship a spawn facing (toward the well) that
     // has nothing to do with the input controller's own default aim (0,0).
     // Sync to it once, before the first PLAYER_INPUT send -- otherwise the
     // very first input message snaps the ship's facing away from its spawn
-    // orientation before the player has ever touched the mouse.
-    if (self && !aimInitialized) {
+    // orientation before the player has ever touched the mouse. Spectators
+    // never send input at all, so this sync is meaningless for them.
+    if (self && !isSpectator && !aimInitialized) {
       input.setInitialAim(self.yaw, self.pitch);
       aimInitialized = true;
     }
     latestSelf = self;
 
     const inputState = input.getState();
-    if (now - lastInputSend >= inputIntervalMs) {
+    if (!isSpectator && now - lastInputSend >= inputIntervalMs) {
       lastInputSend = now;
       const { aimYaw, aimPitch, thrusting, firing } = inputState;
       net.send(MSG.PLAYER_INPUT, { aimYaw, aimPitch, thrusting, firing });
     }
 
-    if (inputState.thrusting !== wasThrusting) {
+    if (!isSpectator && inputState.thrusting !== wasThrusting) {
       wasThrusting = inputState.thrusting;
       audioSystem.setThrusting(wasThrusting);
     }
-    renderer.setLocalThrust(inputState.thrusting);
+    renderer.setLocalThrust(isSpectator ? false : inputState.thrusting);
 
-    if (snap && selfId) {
+    if (snap && renderId) {
       latestShips = snap.ships;
       latestTick = snap.tick;
       latestPickups = snap.pickups;
       if (self) {
-        renderer.updateCamera(self, inputState.thirdPerson, inputState.thrusting);
-        renderer.updateTrajectoryPreview(self, inputState.thrusting, snap.tick);
+        // Always third-person while spectating -- there's no first-person
+        // view that makes sense for a ship you're not piloting -- and the
+        // FOV thrust-kick follows the TRACKED ship's real thrust state,
+        // not the local input controller's (which never fires for a
+        // spectator, since they never press W).
+        const thirdPerson = isSpectator ? true : inputState.thirdPerson;
+        const thrustFlag = isSpectator ? !!self.thrusting : inputState.thrusting;
+        renderer.updateCamera(self, thirdPerson, thrustFlag);
+        if (!isSpectator) renderer.updateTrajectoryPreview(self, inputState.thrusting, snap.tick);
       }
-      renderer.updateOpponents(snap.ships, selfId);
-      renderer.updateProjectiles(snap.projectiles, selfId, () => audioSystem.fire());
+      renderer.updateOpponents(snap.ships, renderId);
+      renderer.updateProjectiles(snap.projectiles, renderId, () => audioSystem.fire());
       renderer.updateMoons(snap.tick);
       renderer.updatePickups(snap.pickups);
-      updateHud(hud, { connection: "connected", selfId, matchState: snap, roomPhase, winner });
+      updateHud(hud, { connection: "connected", selfId: renderId, matchState: snap, roomPhase, winner });
     }
 
     renderer.render();

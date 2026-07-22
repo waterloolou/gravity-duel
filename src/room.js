@@ -35,6 +35,7 @@ export function createRoom(code, hostSocketId) {
     code,
     phase: "waiting", // waiting -> full -> starting -> active -> over
     players,
+    spectators: [], // socketIds only -- see addSpectator's own comment for why no ready/connected tracking is needed here
     winner: null,
     winReason: null,
   };
@@ -60,6 +61,51 @@ export function joinRoom(room, socketId) {
 // currently has 1, 2, or 3 players in it -- anything short of MAX_PLAYERS.
 export function findJoinableRoom(roomList) {
   return roomList.find((room) => room.phase === "waiting") ?? null;
+}
+
+// Spectators watch a room's broadcasts (lobby state pre-match, then
+// MATCH_STATE/MATCH_EVENT once a match is live) without occupying one of
+// the MAX_PLAYERS seats -- server.js's fallback for anyone who tries to
+// join a room that's already full/starting/active (see joinRoom's
+// ROOM_FULL error) instead of just bouncing them with nothing to do.
+// Unlike `players`, a spectator has no ready/connected bookkeeping: they're
+// either in this list (watching) or not (see removeSpectator) -- no
+// reconnection grace period, no seat to hold open.
+export function addSpectator(room, socketId) {
+  if (room.spectators.includes(socketId)) return room;
+  return { ...room, spectators: [...room.spectators, socketId] };
+}
+
+export function removeSpectator(room, socketId) {
+  if (!room.spectators.includes(socketId)) return room;
+  return { ...room, spectators: room.spectators.filter((id) => id !== socketId) };
+}
+
+// Called whenever a pre-match roster change could have opened up a seat (a
+// disconnect compacting the roster, or a rematch resetting to a fresh
+// lobby) -- pulls waiting spectators into any now-open slots, FIFO ("first
+// to ask to spectate, first offered a seat"), so landing in a full room
+// doesn't mean "you can only ever watch, never play". Deliberately never
+// promotes into "starting" (mid-countdown; the ready-up semantics for a
+// player added that late aren't defined) or a live match (joinRoom already
+// routes that whole case to spectating in the first place, never here).
+export function promoteSpectators(room) {
+  if (room.phase !== "waiting" && room.phase !== "full") return { room, promoted: [] };
+  let players = room.players;
+  let spectators = room.spectators;
+  const promoted = [];
+  for (const slot of PLAYER_SLOTS) {
+    if (players[slot]) continue;
+    if (spectators.length === 0) break;
+    const [socketId, ...rest] = spectators;
+    spectators = rest;
+    players = { ...players, [slot]: { socketId, connected: true, ready: false } };
+    promoted.push({ socketId, playerId: slot });
+  }
+  if (promoted.length === 0) return { room, promoted: [] };
+  const filled = PLAYER_SLOTS.filter((id) => players[id]).length;
+  const phase = filled >= MAX_PLAYERS ? "full" : "waiting";
+  return { room: { ...room, phase, players, spectators }, promoted };
 }
 
 // A match can start with as few as MIN_PLAYERS_TO_START players, not just
@@ -93,7 +139,13 @@ export function recordMatchOver(room, winnerId, reason) {
 // (server.js needs it to remove the matching ship from a live match).
 export function handleDisconnect(room, socketId, now) {
   const disconnectedId = PLAYER_SLOTS.find((id) => room.players[id]?.socketId === socketId);
-  if (!disconnectedId) return { room, deleted: false, disconnectedId: null }; // not a player in this room
+  if (!disconnectedId) {
+    // Not a seated player -- might still be a spectator, who needs no
+    // phase/roster handling beyond just being dropped from the list.
+    const spectators = room.spectators.filter((id) => id !== socketId);
+    if (spectators.length === room.spectators.length) return { room, deleted: false, disconnectedId: null }; // wasn't in this room at all
+    return { room: { ...room, spectators }, deleted: false, disconnectedId: null };
+  }
 
   const remainingIds = activePlayerIds(room).filter((id) => id !== disconnectedId);
 
@@ -107,9 +159,13 @@ export function handleDisconnect(room, socketId, now) {
     }
     // Down to one player (or zero): elimination-by-disconnect ends the match
     // outright, same spirit as the original 1v1 "last one standing wins".
+    // Their slot is vacated here too (not left stale) -- otherwise a later
+    // rematch() would still count them as present via activePlayerIds and
+    // wait forever for a ready-up that can never come from a socket that's
+    // already gone.
     const winnerId = remainingIds[0] ?? null;
     return {
-      room: { ...room, phase: "over", winner: winnerId, winReason: "opponent_disconnected" },
+      room: { ...room, phase: "over", players: { ...room.players, [disconnectedId]: null }, winner: winnerId, winReason: "opponent_disconnected" },
       deleted: false,
       disconnectedId,
     };

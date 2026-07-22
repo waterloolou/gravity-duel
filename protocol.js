@@ -21,6 +21,7 @@ export const MSG = {
   // Server -> Client
   ROOM_CREATED: "room_created",
   ROOM_JOINED: "room_joined",
+  SPECTATING: "spectating", // sent instead of ROOM_JOINED when JOIN_ROOM lands on a full/in-progress room -- see room.js's addSpectator
   LOBBY_STATE: "lobby_state",
   ERROR: "error",
   MATCH_STARTING: "match_starting",

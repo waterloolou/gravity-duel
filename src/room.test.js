@@ -32,6 +32,7 @@ check("createRoom starts in the waiting phase with only the host present", () =>
   assert.equal(room.players.p2, null);
   assert.equal(room.players.p3, null);
   assert.equal(room.players.p4, null);
+  assert.deepEqual(room.spectators, []);
 });
 
 check("joinRoom fills the next open slot and stays joinable below capacity", () => {
@@ -181,6 +182,25 @@ check("disconnect during an active 1v1 match ends the WHOLE match in favor of th
   assert.equal(after.winReason, "opponent_disconnected");
 });
 
+check("disconnect during an active 1v1 match vacates the loser's slot too, not just the winner's phase/score", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  room = R.setReady(room, "p1", true);
+  room = R.setReady(room, "p2", true);
+  room = R.beginMatch(room);
+
+  const { room: after } = R.handleDisconnect(room, "socket-2", 0);
+  assert.equal(after.phase, "over");
+  assert.equal(after.players.p2, null, "the departed player's slot must be vacated, not left stale");
+  assert.equal(after.players.p1.socketId, "socket-1", "the winner's own slot should be untouched");
+  // A stale-but-truthy p2 would make rematch() count them as still present
+  // (via activePlayerIds) and wait forever for a ready-up from a socket
+  // that's already gone -- this is what that would have softlocked.
+  const rematched = R.rematch(after);
+  assert.equal(rematched.phase, "waiting", "only p1 remains, so the room should be open for new players, not still counting a ghost p2");
+  assert.equal(rematched.players.p2, null);
+});
+
 check("disconnect during an active FFA match with 3+ remaining players just vacates the slot and keeps playing", () => {
   let room = R.createRoom("ABCD", "socket-1");
   ({ room } = R.joinRoom(room, "socket-2"));
@@ -297,6 +317,87 @@ check("rematch goes to full (not waiting) when the finished room was already at 
 check("rematch is a no-op outside the over phase", () => {
   const room = R.createRoom("ABCD", "socket-1");
   assert.equal(R.rematch(room), room);
+});
+
+check("addSpectator appends a socketId and is idempotent for a duplicate", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  room = R.addSpectator(room, "spec-1");
+  assert.deepEqual(room.spectators, ["spec-1"]);
+  room = R.addSpectator(room, "spec-2");
+  assert.deepEqual(room.spectators, ["spec-1", "spec-2"]);
+  const again = R.addSpectator(room, "spec-1");
+  assert.equal(again, room, "adding an already-present spectator should return the same reference, not a needless copy");
+});
+
+check("removeSpectator drops a socketId and no-ops for one that isn't present", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  room = R.addSpectator(room, "spec-1");
+  room = R.addSpectator(room, "spec-2");
+  const after = R.removeSpectator(room, "spec-1");
+  assert.deepEqual(after.spectators, ["spec-2"]);
+  assert.equal(R.removeSpectator(after, "not-a-spectator"), after, "should return the same reference when the id isn't present");
+});
+
+check("handleDisconnect removes a spectator without touching players or phase", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  room = R.addSpectator(room, "spec-1");
+  const { room: after, deleted, disconnectedId } = R.handleDisconnect(room, "spec-1", 0);
+  assert.equal(deleted, false);
+  assert.equal(disconnectedId, null, "a spectator leaving is not a seated player, so there's no ship/slot to clean up");
+  assert.deepEqual(after.spectators, []);
+  assert.equal(after.phase, "waiting");
+  assert.equal(after.players.p1.socketId, "socket-1", "players should be completely untouched");
+  assert.equal(after.players.p2.socketId, "socket-2");
+});
+
+check("promoteSpectators is a no-op with nobody waiting to be promoted", () => {
+  const room = R.createRoom("ABCD", "socket-1");
+  const { room: after, promoted } = R.promoteSpectators(room);
+  assert.equal(after, room, "should return the same reference, not a needless copy");
+  assert.deepEqual(promoted, []);
+});
+
+check("promoteSpectators pulls waiting spectators into open seats, FIFO, and reports who got promoted", () => {
+  let room = R.createRoom("ABCD", "socket-1"); // p1 filled, p2-p4 open
+  room = R.addSpectator(room, "spec-1");
+  room = R.addSpectator(room, "spec-2");
+  const { room: after, promoted } = R.promoteSpectators(room);
+  assert.deepEqual(promoted, [
+    { socketId: "spec-1", playerId: "p2" },
+    { socketId: "spec-2", playerId: "p3" },
+  ]);
+  assert.equal(after.players.p2.socketId, "spec-1");
+  assert.equal(after.players.p3.socketId, "spec-2");
+  assert.equal(after.players.p2.ready, false);
+  assert.deepEqual(after.spectators, [], "promoted spectators should be removed from the spectator list");
+  assert.equal(after.phase, "waiting", "still short of MAX_PLAYERS");
+});
+
+check("promoteSpectators stops once seats run out, leaving the rest still spectating", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  // Only p4 is open.
+  room = R.addSpectator(room, "spec-1");
+  room = R.addSpectator(room, "spec-2");
+  const { room: after, promoted } = R.promoteSpectators(room);
+  assert.deepEqual(promoted, [{ socketId: "spec-1", playerId: "p4" }]);
+  assert.equal(after.players.p4.socketId, "spec-1");
+  assert.deepEqual(after.spectators, ["spec-2"], "spec-2 should still be waiting -- no seat left for them");
+  assert.equal(after.phase, "full", "filling the last seat should flip the room to full");
+});
+
+check("promoteSpectators never promotes into a starting, active, or over room", () => {
+  for (const phase of ["starting", "active", "over"]) {
+    let room = R.createRoom("ABCD", "socket-1");
+    ({ room } = R.joinRoom(room, "socket-2"));
+    room = R.addSpectator(room, "spec-1");
+    room = { ...room, phase }; // force the phase directly -- only the promotion boundary is under test here
+    const { room: after, promoted } = R.promoteSpectators(room);
+    assert.deepEqual(promoted, [], `should not promote while phase is "${phase}"`);
+    assert.deepEqual(after.spectators, ["spec-1"]);
+  }
 });
 
 console.log(`\n${passed} room.js assertions passed`);

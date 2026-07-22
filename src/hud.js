@@ -37,8 +37,12 @@ export function updateHud(hudEl, { connection, selfId, matchState, roomPhase, wi
   if (matchState && selfId) {
     // Only touch the scoreboard DOM when something actually changed --
     // updateHud runs once per rendered frame (~60Hz), and rebuilding these
-    // nodes every frame regardless would be pointless DOM churn.
-    const signature = matchState.playerIds.map((id) => `${id}:${matchState.ships[id]?.kills ?? 0}`).join(",");
+    // nodes every frame regardless would be pointless DOM churn. selfId is
+    // part of the signature (not just playerIds/kills) because it can now
+    // change mid-match on its own: a spectator cycling which ship they're
+    // following (see main.js's cycleSpectateTarget) needs the "You"
+    // highlight to move immediately, even if no one's score changed.
+    const signature = `${selfId}|${matchState.playerIds.map((id) => `${id}:${matchState.ships[id]?.kills ?? 0}`).join(",")}`;
     if (hudEl.dataset.scoreSignature !== signature) {
       hudEl.dataset.scoreSignature = signature;
       const panel = hudEl.querySelector("[data-score-panel]");

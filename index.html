@@ -70,6 +70,12 @@
       </div>
     </section>
 
+    <section id="view-spectate-wait" class="view panel" hidden>
+      <h2>Spectating <strong data-spectate-room-code></strong></h2>
+      <p class="status-text" data-spectate-status>Waiting for the match to start…</p>
+      <button type="button" class="secondary" data-spectate-leave>Leave</button>
+    </section>
+
     <section id="view-hangar" class="view panel hangar-panel" hidden>
       <h2>Hangar</h2>
       <p class="hangar-hint">Ships and weapons are lateral choices, not power -- pick a playstyle. Progress is tied to this browser and won't survive a server redeploy yet.</p>
@@ -116,6 +122,7 @@
           <div class="score-panel" data-score-panel></div>
           <div class="shield-badge" data-shield-badge hidden>⛊ SHIELDED</div>
           <div class="boost-badge" data-boost-badge hidden>⚡ BOOSTED</div>
+          <div class="spectate-badge" data-spectate-badge hidden>👁 SPECTATING</div>
         </div>
         <div class="kill-feed" data-kill-feed></div>
         <div class="hud-bottom">
@@ -124,6 +131,8 @@
             <div class="heat-gauge-track"><div class="heat-gauge-fill" data-heat-fill></div></div>
           </div>
           <div class="controls-hint desktop-hint">Mouse to aim · W to thrust · Click to fire · C to toggle camera</div>
+          <div class="controls-hint spectate-hint" data-spectate-hint hidden>Tab, or the button below, switches who you're watching</div>
+          <button type="button" class="spectate-next-btn" data-spectate-next hidden>Next Ship ▶</button>
         </div>
         <div class="crosshair" data-crosshair></div>
         <div class="touch-controls" data-touch-controls>
