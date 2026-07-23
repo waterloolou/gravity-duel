@@ -7,6 +7,13 @@ import { MSG } from "../protocol.js";
 
 const SNAPSHOT_BUFFER_SIZE = 12;
 export const INTERPOLATION_DELAY_MS = 100;
+// A separate, much longer-lived buffer of raw (un-interpolated) snapshots,
+// purely for the killcam replay (main.js) -- SNAPSHOT_BUFFER_SIZE above only
+// holds ~0.4s at 30Hz, enough for live interpolation but nowhere near the
+// ~2s look-back a death replay needs. Time-based trimming (not a fixed
+// count) so a tick-rate hiccup can't leave the buffer covering less than
+// this window.
+const KILLCAM_HISTORY_MS = 3000;
 
 function lerp(a, b, t) {
   return a + (b - a) * t;
@@ -60,6 +67,7 @@ function interpolateState(a, b, t) {
 export function createNetClient(url) {
   const listeners = new Map();
   const snapshots = [];
+  const killcamHistory = []; // { t, state }
 
   function on(type, fn) {
     if (!listeners.has(type)) listeners.set(type, new Set());
@@ -78,8 +86,13 @@ export function createNetClient(url) {
     ws.addEventListener("message", (event) => {
       const msg = JSON.parse(event.data);
       if (msg.type === MSG.MATCH_STATE) {
-        snapshots.push({ t: performance.now(), state: msg });
+        const t = performance.now();
+        snapshots.push({ t, state: msg });
         if (snapshots.length > SNAPSHOT_BUFFER_SIZE) snapshots.shift();
+
+        killcamHistory.push({ t, state: msg });
+        const cutoff = t - KILLCAM_HISTORY_MS;
+        while (killcamHistory.length > 0 && killcamHistory[0].t < cutoff) killcamHistory.shift();
       }
       emit(msg.type, msg);
     });
@@ -118,5 +131,18 @@ export function createNetClient(url) {
     snapshots.length = 0;
   }
 
-  return { connect, send, on, sampleAt, latest, clearSnapshots };
+  // Every buffered raw snapshot from the last `durationMs`, oldest first --
+  // called right when a death event arrives (see main.js), so `beforeMs`
+  // defaults to "now" and this naturally captures the run-up to that exact
+  // moment. Deliberately returns the raw (un-interpolated) states rather
+  // than reusing interpolateState -- at 30Hz, stepping frame-to-frame
+  // through a ~2s replay is already smooth enough that the added complexity
+  // of interpolating a REPLAY (as opposed to live render timing, which
+  // genuinely needs it to hide network jitter) isn't worth it.
+  function getKillcamClip(durationMs, beforeMs = performance.now()) {
+    const cutoff = beforeMs - durationMs;
+    return killcamHistory.filter((entry) => entry.t >= cutoff && entry.t <= beforeMs).map((entry) => entry.state);
+  }
+
+  return { connect, send, on, sampleAt, latest, clearSnapshots, getKillcamClip };
 }

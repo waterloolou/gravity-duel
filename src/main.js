@@ -471,6 +471,16 @@ let aimInitialized = false;
 const PICKUP_EVENT_COLORS = { speed: 0xffe066, shield: 0x4fd1ff, vent: 0xff7a3d };
 const PICKUP_LABELS = { speed: "Speed boost", shield: "Shield", vent: "Heat vent" };
 
+// { clip, startedAt, killerId } | null -- clip is a raw (un-interpolated)
+// snapshot array from net.js's longer-lived history buffer, captured at the
+// instant of death. Real-time 1:1 playback (duration === lookback) ending
+// right at the fatal hit is the simplest mapping that still reads as "here's
+// what just happened," so both constants are kept equal on purpose.
+let killcamState = null;
+const KILLCAM_LOOKBACK_MS = 2000;
+const KILLCAM_DURATION_MS = 2000;
+const killcamBadgeEl = document.querySelector("[data-killcam-badge]");
+
 net.on(MSG.MATCH_EVENT, (msg) => {
   if (msg.event === "hit" || msg.event === "well_death" || msg.event === "moon_death") {
     const isSelfVictim = msg.victimId === selfId;
@@ -480,6 +490,17 @@ net.on(MSG.MATCH_EVENT, (msg) => {
     if (isSelfVictim) {
       triggerDamageFlash();
       gameRenderer?.triggerShake(0.6);
+      // well_death/moon_death have no killer to show a replay from -- only
+      // an actual "hit" (shot by another ship) gets a killcam. Skipped
+      // (rather than shown empty) if the history buffer hasn't accumulated
+      // at least a couple of frames yet, e.g. dying within the first
+      // instant of a match.
+      if (msg.event === "hit" && msg.killerId) {
+        const clip = net.getKillcamClip(KILLCAM_LOOKBACK_MS);
+        if (clip.length >= 2) {
+          killcamState = { clip, startedAt: performance.now(), killerId: msg.killerId };
+        }
+      }
     } else {
       const victim = latestShips?.[msg.victimId];
       if (victim) {
@@ -658,76 +679,118 @@ function startGameLoop() {
     requestAnimationFrame(loop);
     const now = performance.now();
 
+    // Killcam: while active, render frames from the frozen clip captured at
+    // the moment of death instead of the live interpolation buffer, camera
+    // locked on the killer -- see the "hit" MATCH_EVENT handler for how
+    // killcamState gets populated. Real time keeps advancing server-side
+    // regardless (the player has already respawned); this is purely a
+    // client-side replay overlay on top of that.
+    let killcamActive = false;
+    if (killcamState) {
+      const elapsed = now - killcamState.startedAt;
+      if (elapsed >= KILLCAM_DURATION_MS) {
+        killcamState = null;
+      } else {
+        killcamActive = true;
+      }
+    }
+    if (killcamBadgeEl) killcamBadgeEl.hidden = !killcamActive;
+
     const renderTime = now - INTERPOLATION_DELAY_MS;
-    const snap = net.sampleAt(renderTime);
+    let snap;
+    if (killcamActive) {
+      const progress = Math.min(1, (now - killcamState.startedAt) / KILLCAM_DURATION_MS);
+      const index = Math.min(killcamState.clip.length - 1, Math.floor(progress * killcamState.clip.length));
+      snap = killcamState.clip[index];
+    } else {
+      snap = net.sampleAt(renderTime);
+    }
 
     // A spectator has no ship of their own -- renderId stands in for selfId
-    // everywhere below (camera target, "self" ship model, HUD highlight),
-    // pointed at whichever player they're currently following. Re-picks
-    // automatically if that target disconnects or a fresh match starts a
-    // new roster, rather than freezing on a ghost id forever.
+    // everywhere below (camera target, "self" ship model), pointed at
+    // whichever player they're currently following. Re-picks automatically
+    // if that target disconnects or a fresh match starts a new roster,
+    // rather than freezing on a ghost id forever. Killcam overrides this
+    // the same way, pinned to the killer for the duration of the replay.
     if (isSpectator && snap && (!spectateTargetId || !snap.playerIds.includes(spectateTargetId))) {
       spectateTargetId = snap.playerIds[0] ?? null;
     }
-    const renderId = selfId ?? (isSpectator ? spectateTargetId : null);
+    const passive = isSpectator || killcamActive; // no ship control either way -- just a difference in WHY
+    const renderId = killcamActive ? killcamState.killerId : selfId ?? (isSpectator ? spectateTargetId : null);
     const self = snap && renderId ? snap.ships[renderId] : null;
 
-    // Only touches the DOM on an actual mode change (spectator this frame
-    // vs last) -- covers a spectator getting promoted mid-session, where
-    // startGameLoop()'s one-time setup has already long since run and can't
-    // be relied on to reflect the switch back to normal play.
+    // Only touches the DOM on an actual mode change -- covers a spectator
+    // getting promoted mid-session, where startGameLoop()'s one-time setup
+    // has already long since run and can't be relied on to reflect the
+    // switch back to normal play.
     if (hud.dataset.spectating !== String(isSpectator)) {
       hud.dataset.spectating = String(isSpectator);
       if (spectateBadgeEl) spectateBadgeEl.hidden = !isSpectator;
       if (spectateHintEl) spectateHintEl.hidden = !isSpectator;
       if (spectateNextBtn) spectateNextBtn.hidden = !isSpectator;
     }
+    if (hud.dataset.killcam !== String(killcamActive)) hud.dataset.killcam = String(killcamActive);
 
     // The server assigns each ship a spawn facing (toward the well) that
     // has nothing to do with the input controller's own default aim (0,0).
     // Sync to it once, before the first PLAYER_INPUT send -- otherwise the
     // very first input message snaps the ship's facing away from its spawn
-    // orientation before the player has ever touched the mouse. Spectators
-    // never send input at all, so this sync is meaningless for them.
-    if (self && !isSpectator && !aimInitialized) {
+    // orientation before the player has ever touched the mouse. Passive
+    // viewers (spectating, or watching their own killcam) never send input
+    // at all, so this sync is meaningless for them.
+    if (self && !passive && !aimInitialized) {
       input.setInitialAim(self.yaw, self.pitch);
       aimInitialized = true;
     }
-    latestSelf = self;
+    // Never overwritten with the killer's ship data during a killcam --
+    // latestSelf/latestShips/latestTick/latestPickups (below) stay anchored
+    // to the real live match throughout, since other logic (kill-feed
+    // victim lookups, the debug hook) expects them to reflect what's
+    // actually happening right now, not a ~2s-old replay frame.
+    if (!killcamActive) latestSelf = self;
 
     const inputState = input.getState();
-    if (!isSpectator && now - lastInputSend >= inputIntervalMs) {
+    if (!passive && now - lastInputSend >= inputIntervalMs) {
       lastInputSend = now;
       const { aimYaw, aimPitch, thrusting, firing } = inputState;
       net.send(MSG.PLAYER_INPUT, { aimYaw, aimPitch, thrusting, firing });
     }
 
-    if (!isSpectator && inputState.thrusting !== wasThrusting) {
+    if (!passive && inputState.thrusting !== wasThrusting) {
       wasThrusting = inputState.thrusting;
       audioSystem.setThrusting(wasThrusting);
     }
-    renderer.setLocalThrust(isSpectator ? false : inputState.thrusting);
+    renderer.setLocalThrust(passive ? false : inputState.thrusting);
 
     if (snap && renderId) {
-      latestShips = snap.ships;
-      latestTick = snap.tick;
-      latestPickups = snap.pickups;
+      if (!killcamActive) {
+        latestShips = snap.ships;
+        latestTick = snap.tick;
+        latestPickups = snap.pickups;
+      }
       if (self) {
-        // Always third-person while spectating -- there's no first-person
-        // view that makes sense for a ship you're not piloting -- and the
-        // FOV thrust-kick follows the TRACKED ship's real thrust state,
-        // not the local input controller's (which never fires for a
-        // spectator, since they never press W).
-        const thirdPerson = isSpectator ? true : inputState.thirdPerson;
-        const thrustFlag = isSpectator ? !!self.thrusting : inputState.thrusting;
+        // Third-person whenever there's no ship of the viewer's own being
+        // piloted right now -- there's no first-person view that makes
+        // sense for a ship you're not flying. The FOV thrust-kick follows
+        // the TRACKED ship's real thrust state in that case too, not the
+        // local input controller's (which never fires while passive).
+        const thirdPerson = passive ? true : inputState.thirdPerson;
+        const thrustFlag = passive ? !!self.thrusting : inputState.thrusting;
         renderer.updateCamera(self, thirdPerson, thrustFlag);
-        if (!isSpectator) renderer.updateTrajectoryPreview(self, inputState.thrusting, snap.tick);
+        if (!passive) renderer.updateTrajectoryPreview(self, inputState.thrusting, snap.tick);
       }
       renderer.updateOpponents(snap.ships, renderId);
       renderer.updateProjectiles(snap.projectiles, renderId, () => audioSystem.fire());
       renderer.updateMoons(snap.tick);
       renderer.updatePickups(snap.pickups);
-      updateHud(hud, { connection: "connected", selfId: renderId, matchState: snap, roomPhase, winner });
+      // Killcam keeps the HUD ("You", heat/shield/boost) anchored to the
+      // real local player even though the camera/self-ship-model is
+      // following the killer -- you're still yourself, just watching a
+      // replay of what just happened to you. Spectating has no real selfId
+      // to fall back to, so renderId (the followed player) is the next best
+      // thing there.
+      const hudSelfId = killcamActive ? selfId : renderId;
+      updateHud(hud, { connection: "connected", selfId: hudSelfId, matchState: snap, roomPhase, winner });
     }
 
     renderer.render();
