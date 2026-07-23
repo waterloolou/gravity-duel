@@ -1,5 +1,6 @@
 import { MSG } from "../protocol.js";
 import * as P from "./physics.js";
+import { PINGS, PING_COOLDOWN_MS } from "./pings.js";
 import { createNetClient, INTERPOLATION_DELAY_MS } from "./net.js";
 import { createInputController } from "./input.js";
 import { createRenderer } from "./render.js";
@@ -141,6 +142,32 @@ document.addEventListener("keydown", (e) => {
   if (e.code !== "Tab" || !isSpectator) return;
   e.preventDefault(); // Tab would otherwise shift focus off the canvas
   cycleSpectateTarget();
+});
+
+// Quick-chat pings: a fixed preset catalog (src/pings.js), not free text --
+// see that file's own comment for why. Buttons double as number-key
+// shortcuts (1-4) so a player mid-fight doesn't have to reach for the mouse.
+const pingButtons = document.querySelectorAll("[data-ping]");
+function sendPing(pingId) {
+  if (!PINGS[pingId] || isSpectator) return;
+  audioSystem.uiClick();
+  net.send(MSG.SEND_PING, { pingId });
+  // Client-side mirror of the server's own PING_COOLDOWN_MS -- purely
+  // visual feedback (a disabled look) so a rapid extra click doesn't just
+  // silently do nothing; the server enforces the real cooldown regardless.
+  pingButtons.forEach((btn) => (btn.disabled = true));
+  setTimeout(() => pingButtons.forEach((btn) => (btn.disabled = false)), PING_COOLDOWN_MS);
+}
+pingButtons.forEach((btn) => btn.addEventListener("click", () => sendPing(btn.dataset.ping)));
+document.addEventListener("keydown", (e) => {
+  if (roomPhase !== "active" || isSpectator) return;
+  const entry = Object.values(PINGS).find((p) => p.key === e.key);
+  if (entry) sendPing(entry.id);
+});
+
+net.on(MSG.PING, (msg) => {
+  const label = PINGS[msg.pingId]?.label ?? "…";
+  pushKillFeed(`${playerLabel(msg.playerId)}: ${label}`);
 });
 
 function pushKillFeed(message) {

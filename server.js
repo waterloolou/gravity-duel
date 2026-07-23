@@ -19,6 +19,7 @@ import * as ProfileStore from "./src/profile-store.js";
 import * as Loadouts from "./src/loadouts.js";
 import * as Bot from "./src/bot.js";
 import * as Challenges from "./src/challenges.js";
+import * as Pings from "./src/pings.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8892;
@@ -538,6 +539,19 @@ function handleMessage(socketId, msg) {
       broadcastLobbyState(sock.roomCode);
       return;
     }
+    case MSG.SEND_PING: {
+      const entry = rooms.get(sock.roomCode);
+      // Only a seated player mid-match can ping -- not a spectator (they'd
+      // have nothing at stake to call out), and only from the fixed catalog
+      // (never whatever string msg.pingId happens to be) since this whole
+      // feature exists specifically to avoid a free-text abuse surface.
+      if (!entry || !sock.playerId || entry.room.phase !== "active" || !Pings.PINGS[msg.pingId]) return;
+      const nowMs = Date.now();
+      if (nowMs - sock.lastPingAt < Pings.PING_COOLDOWN_MS) return;
+      sock.lastPingAt = nowMs;
+      broadcastToRoom(entry, MSG.PING, { playerId: sock.playerId, pingId: msg.pingId });
+      return;
+    }
     case MSG.PLAYER_INPUT: {
       const entry = rooms.get(sock.roomCode);
       if (!entry || !sock.playerId || entry.room.phase !== "active") return;
@@ -643,7 +657,7 @@ function handleMessage(socketId, msg) {
 
 wss.on("connection", (ws) => {
   const socketId = crypto.randomUUID();
-  sockets.set(socketId, { ws, roomCode: null, playerId: null, profileId: null });
+  sockets.set(socketId, { ws, roomCode: null, playerId: null, profileId: null, lastPingAt: 0 });
   ws.isAlive = true;
   ws.on("pong", () => {
     ws.isAlive = true;

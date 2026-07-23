@@ -831,10 +831,40 @@ button.secondary:disabled {
 #hud[data-spectating="true"] .crosshair,
 #hud[data-spectating="true"] .touch-controls,
 #hud[data-spectating="true"] .desktop-hint,
+#hud[data-spectating="true"] .ping-bar,
 #hud[data-killcam="true"] .crosshair,
 #hud[data-killcam="true"] .touch-controls,
-#hud[data-killcam="true"] .desktop-hint {
+#hud[data-killcam="true"] .desktop-hint,
+#hud[data-killcam="true"] .ping-bar {
   display: none;
+}
+
+.ping-bar {
+  position: absolute;
+  left: 16px;
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  pointer-events: auto;
+}
+
+.ping-bar button {
+  background: rgba(10, 8, 20, 0.6);
+  border: 1px solid rgba(167, 139, 250, 0.35);
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.75rem;
+  padding: 5px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: opacity 0.15s ease;
+}
+
+.ping-bar button:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .killcam-badge {
@@ -900,6 +930,13 @@ button.secondary:disabled {
      (confirmed visually). The labeled on-screen buttons are self-
      explanatory enough not to need it. */
   .desktop-hint {
+    display: none;
+  }
+  /* Same collision as above -- .ping-bar's bottom-left position lands right
+     on top of the THRUST button on a touch device. A touch-friendly ping
+     UI is a real feature in its own right, not just a repositioning; left
+     as a future improvement rather than shipping something cramped here. */
+  .ping-bar {
     display: none;
   }
 }

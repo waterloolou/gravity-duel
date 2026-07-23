@@ -19,6 +19,7 @@ export const MSG = {
   REQUEST_LEADERBOARD: "request_leaderboard",
   ADD_BOT: "add_bot",
   REMOVE_BOT: "remove_bot",
+  SEND_PING: "send_ping",
 
   // Server -> Client
   ROOM_CREATED: "room_created",
@@ -32,6 +33,7 @@ export const MSG = {
   PROFILE_STATE: "profile_state",
   LEADERBOARD_STATE: "leaderboard_state",
   CHALLENGE_COMPLETED: "challenge_completed",
+  PING: "ping", // broadcast to the room in response to a SEND_PING -- see src/pings.js's fixed catalog
 };
 
 export const ERROR_CODES = {
