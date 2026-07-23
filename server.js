@@ -17,6 +17,7 @@ import * as P from "./src/physics.js";
 import * as Profile from "./src/profile.js";
 import * as ProfileStore from "./src/profile-store.js";
 import * as Loadouts from "./src/loadouts.js";
+import * as Bot from "./src/bot.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8892;
@@ -118,7 +119,12 @@ function promoteWaitingSpectators(code) {
 function lobbyStatePayload(room) {
   return {
     code: room.code,
-    players: R.activePlayerIds(room).map((pid) => ({ playerNumber: pid, connected: room.players[pid].connected, ready: room.players[pid].ready })),
+    players: R.activePlayerIds(room).map((pid) => ({
+      playerNumber: pid,
+      connected: room.players[pid].connected,
+      ready: room.players[pid].ready,
+      isBot: !!room.players[pid].isBot,
+    })),
   };
 }
 
@@ -264,6 +270,15 @@ function startTickLoop(code) {
     while (acc >= stepMs && entry.tickTimer) {
       acc -= stepMs;
       const nowSec = Date.now() / 1000;
+      // Bots have no socket to ever send PLAYER_INPUT, so their entry.inputs
+      // slot is computed fresh here, every tick, right before stepMatch
+      // reads it -- same shape/timing as a real player's input, just
+      // sourced from bot.js's pure AI instead of a WebSocket message.
+      for (const id of entry.matchState.playerIds) {
+        if (!entry.room.players[id]?.isBot) continue;
+        const targetId = Bot.pickTarget(id, entry.matchState.ships);
+        entry.inputs[id] = Bot.computeBotInput(entry.matchState.ships[id], targetId ? entry.matchState.ships[targetId] : null, nowSec);
+      }
       const { state, events } = M.stepMatch(entry.matchState, entry.inputs, P.TICK_DT, nowSec);
       entry.matchState = state;
       for (const ev of events) {
@@ -464,6 +479,29 @@ function handleMessage(socketId, msg) {
         broadcastToRoom(entry, MSG.MATCH_STARTING, { countdownMs: MATCH_STARTING_COUNTDOWN_MS });
         entry.startTimer = setTimeout(() => beginMatch(sock.roomCode), MATCH_STARTING_COUNTDOWN_MS);
       }
+      return;
+    }
+    case MSG.ADD_BOT: {
+      // Any seated player can add/remove a bot -- there's no distinct
+      // "host" concept in this room model, and letting only p1 do it would
+      // just be an arbitrary restriction with no real benefit.
+      const entry = rooms.get(sock.roomCode);
+      if (!entry || !sock.playerId) return;
+      const { room, error } = R.addBot(entry.room);
+      if (error) {
+        send(sock.ws, MSG.ERROR, { code: ERROR_CODES[error] ?? error, message: "Couldn't add a bot right now." });
+        return;
+      }
+      entry.room = room;
+      broadcastLobbyState(sock.roomCode);
+      return;
+    }
+    case MSG.REMOVE_BOT: {
+      const entry = rooms.get(sock.roomCode);
+      if (!entry || !sock.playerId) return;
+      entry.room = R.removeBot(entry.room, String(msg.slot || ""));
+      promoteWaitingSpectators(sock.roomCode); // a freed bot seat is a seat a waiting spectator can be pulled into
+      broadcastLobbyState(sock.roomCode);
       return;
     }
     case MSG.PLAYER_INPUT: {

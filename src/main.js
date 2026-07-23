@@ -232,6 +232,21 @@ copyInviteBtn?.addEventListener("click", async () => {
   }, 1500);
 });
 
+document.querySelector("[data-add-bot]")?.addEventListener("click", () => {
+  audioSystem.uiClick();
+  net.send(MSG.ADD_BOT);
+});
+
+// Bot rows are rebuilt from scratch on every LOBBY_STATE (see that handler),
+// so their Remove buttons are wired via delegation on the always-present
+// list container rather than re-binding a listener per row every time.
+playerListEl.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-remove-bot]");
+  if (!btn) return;
+  audioSystem.uiClick();
+  net.send(MSG.REMOVE_BOT, { slot: btn.dataset.removeBot });
+});
+
 readyBtn.addEventListener("click", () => {
   // Guard client-side against the exact bug that caused P1 to get
   // permanently stuck: clicking Ready before at least one other player has
@@ -380,13 +395,18 @@ net.on(MSG.LOBBY_STATE, (msg) => {
 
   playersInRoom = msg.players.length;
   playerListEl.innerHTML = msg.players
-    .map((p) => `<li data-player-row="${p.playerNumber}">${p.playerNumber}${p.playerNumber === selfId ? " (you)" : ""} — ${p.ready ? "ready" : "not ready"}</li>`)
+    .map((p) => {
+      if (p.isBot) {
+        return `<li data-player-row="${p.playerNumber}">BOT — ready <button type="button" class="bot-remove" data-remove-bot="${p.playerNumber}">Remove</button></li>`;
+      }
+      return `<li data-player-row="${p.playerNumber}">${p.playerNumber}${p.playerNumber === selfId ? " (you)" : ""} — ${p.ready ? "ready" : "not ready"}</li>`;
+    })
     .join("");
 
   const self = msg.players.find((p) => p.playerNumber === selfId);
   if (playersInRoom < 2) {
     readyBtn.disabled = true;
-    lobbyStatusEl.textContent = "Waiting for at least one more player…";
+    lobbyStatusEl.textContent = "Waiting for at least one more player… or add a bot to practice against.";
   } else if (self?.ready) {
     readyBtn.disabled = true;
     lobbyStatusEl.textContent = "";
@@ -394,6 +414,9 @@ net.on(MSG.LOBBY_STATE, (msg) => {
     readyBtn.disabled = false;
     lobbyStatusEl.textContent = "";
   }
+
+  const addBotBtn = document.querySelector("[data-add-bot]");
+  if (addBotBtn) addBotBtn.disabled = playersInRoom >= 4; // mirrors room.js's MAX_PLAYERS -- just an early client-side hint, the server is the real gate
 });
 
 let countdownTimer = null;

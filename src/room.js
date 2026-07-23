@@ -108,6 +108,38 @@ export function promoteSpectators(room) {
   return { room: { ...room, phase, players, spectators }, promoted };
 }
 
+// A bot occupies a real seat (counts toward MAX_PLAYERS, gets a spawn
+// position, shows up in the scoreboard) but has no socket -- `socketId:
+// null` is how every socketId-keyed lookup elsewhere (broadcastToRoom,
+// reconcilePlayerIdsForRoom, disconnect-by-socketId) already safely no-ops
+// for it without needing bot-specific branches sprinkled through server.js.
+// Always seated as ready: true since there's no human to wait on.
+export function addBot(room) {
+  if (room.phase !== "waiting" && room.phase !== "full") return { room, error: "ROOM_NOT_JOINABLE", slot: null };
+  const slot = PLAYER_SLOTS.find((id) => !room.players[id]);
+  if (!slot) return { room, error: "ROOM_FULL", slot: null };
+  const players = { ...room.players, [slot]: { socketId: null, isBot: true, connected: true, ready: true } };
+  const filled = PLAYER_SLOTS.filter((id) => players[id]).length;
+  const phase = filled >= MAX_PLAYERS ? "full" : "waiting";
+  return { room: { ...room, phase, players }, error: null, slot };
+}
+
+// Deliberately restricted to the same pre-match phases as addBot -- pulling
+// a bot out mid-countdown or mid-match would leave setReady/the live sim in
+// an undefined state no other code path expects. Not compacted down to a
+// contiguous prefix afterward (unlike a human disconnect) since that would
+// mean silently renumbering OTHER seated players' ids out from under them
+// for what's a much rarer, deliberate action -- joinRoom already finds the
+// next open slot regardless of gaps, so a freed slot doesn't go to waste.
+export function removeBot(room, slot) {
+  if (room.phase !== "waiting" && room.phase !== "full") return room;
+  if (!room.players[slot]?.isBot) return room;
+  const players = { ...room.players, [slot]: null };
+  const filled = PLAYER_SLOTS.filter((id) => players[id]).length;
+  const phase = filled >= MAX_PLAYERS ? "full" : "waiting";
+  return { ...room, phase, players };
+}
+
 // A match can start with as few as MIN_PLAYERS_TO_START players, not just
 // once the lobby fills up -- it starts the moment everyone currently seated
 // (2, 3, or 4 of them) has readied up. Ready-up itself is valid any time
@@ -148,6 +180,16 @@ export function handleDisconnect(room, socketId, now) {
   }
 
   const remainingIds = activePlayerIds(room).filter((id) => id !== disconnectedId);
+  // A bot never disconnects on its own, so it can't be relied on to ever
+  // trigger this cleanup again later -- if every HUMAN is gone, the whole
+  // room (any remaining bots included) is torn down right here regardless
+  // of phase, rather than leaving a bot-only room (or, worse, a bot-vs-bot
+  // match that will run to completion with no one left to see it) orphaned
+  // forever with nothing left to ever call handleDisconnect on it again.
+  const remainingHumanIds = remainingIds.filter((id) => !room.players[id]?.isBot);
+  if (remainingHumanIds.length === 0) {
+    return { room, deleted: true, disconnectedId };
+  }
 
   if (room.phase === "active") {
     if (remainingIds.length >= 2) {
@@ -178,9 +220,8 @@ export function handleDisconnect(room, socketId, now) {
   // rematch(), so a stale disconnected-but-still-seated player must not
   // silently keep occupying a slot once that happens. Only pre-match phases
   // actually revert to "waiting"; a still-"over" room stays "over" until
-  // someone explicitly rematches.
-  if (remainingIds.length === 0) return { room, deleted: true, disconnectedId };
-
+  // someone explicitly rematches. (remainingIds can't be empty here -- that
+  // would mean remainingHumanIds is also empty, already returned above.)
   const players = {};
   remainingIds.forEach((id, i) => {
     players[PLAYER_SLOTS[i]] = { ...room.players[id], ready: false };

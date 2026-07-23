@@ -17,6 +17,8 @@ export const MSG = {
   REQUEST_REMATCH: "request_rematch",
   SET_DISPLAY_NAME: "set_display_name",
   REQUEST_LEADERBOARD: "request_leaderboard",
+  ADD_BOT: "add_bot",
+  REMOVE_BOT: "remove_bot",
 
   // Server -> Client
   ROOM_CREATED: "room_created",
@@ -44,6 +46,7 @@ export const ERROR_CODES = {
   UNKNOWN_LOADOUT_ID: "UNKNOWN_LOADOUT_ID",
   MAX_LEVEL_REACHED: "MAX_LEVEL_REACHED",
   INVALID_NAME: "INVALID_NAME",
+  ROOM_NOT_JOINABLE: "ROOM_NOT_JOINABLE",
 };
 
 export const MATCH_STARTING_COUNTDOWN_MS = 3000;

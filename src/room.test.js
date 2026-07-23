@@ -400,4 +400,108 @@ check("promoteSpectators never promotes into a starting, active, or over room", 
   }
 });
 
+check("addBot fills the next open slot as an always-ready bot", () => {
+  let room = R.createRoom("ABCD", "socket-1"); // p1 filled, p2-p4 open
+  const { room: after, error, slot } = R.addBot(room);
+  assert.equal(error, null);
+  assert.equal(slot, "p2");
+  assert.equal(after.players.p2.isBot, true);
+  assert.equal(after.players.p2.ready, true, "a bot needs no human to wait on, so it's ready from the moment it's seated");
+  assert.equal(after.players.p2.socketId, null);
+  assert.equal(after.phase, "waiting", "still short of MAX_PLAYERS");
+});
+
+check("addBot flips the room to full once it fills the last seat", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  const { room: after } = R.addBot(room); // fills p4, the last seat
+  assert.equal(after.phase, "full");
+});
+
+check("addBot rejects a room that's already full", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  ({ room } = R.joinRoom(room, "socket-4"));
+  const { room: after, error, slot } = R.addBot(room);
+  assert.equal(error, "ROOM_FULL");
+  assert.equal(slot, null);
+  assert.equal(after, room, "should return the same reference on failure");
+});
+
+check("addBot rejects a room that isn't in a pre-match phase", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  room = R.setReady(room, "p1", true);
+  room = R.setReady(room, "p2", true);
+  assert.equal(room.phase, "starting");
+  const { error } = R.addBot(room);
+  assert.equal(error, "ROOM_NOT_JOINABLE");
+});
+
+check("a room can start (and ready-up counts a bot as already ready) with just one human and a bot", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.addBot(room));
+  room = R.setReady(room, "p1", true);
+  assert.equal(room.phase, "starting", "the bot's own ready:true plus the human readying up should be enough to start");
+});
+
+check("removeBot vacates a bot's slot and reopens a full room", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.joinRoom(room, "socket-3"));
+  ({ room } = R.addBot(room)); // fills p4 -> full
+  assert.equal(room.phase, "full");
+  const after = R.removeBot(room, "p4");
+  assert.equal(after.players.p4, null);
+  assert.equal(after.phase, "waiting");
+});
+
+check("removeBot is a no-op on a slot that isn't actually a bot", () => {
+  const room = R.createRoom("ABCD", "socket-1");
+  const after = R.removeBot(room, "p1"); // p1 is socket-1, a real player
+  assert.equal(after, room, "should return the same reference, not a needless copy");
+});
+
+check("removeBot is a no-op outside a pre-match phase", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.addBot(room));
+  room = R.setReady(room, "p1", true);
+  assert.equal(room.phase, "starting");
+  const after = R.removeBot(room, "p2");
+  assert.equal(after, room);
+});
+
+check("a human disconnecting from a room with only bots left tears the whole room down", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.addBot(room));
+  ({ room } = R.addBot(room));
+  const { deleted, disconnectedId } = R.handleDisconnect(room, "socket-1", 0);
+  assert.equal(deleted, true, "bots can't disconnect on their own, so nothing would ever clean this room up otherwise");
+  assert.equal(disconnectedId, "p1");
+});
+
+check("a human disconnecting mid-active-match with only a bot remaining also tears the room down immediately, not left running bot-vs-bot", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  ({ room } = R.joinRoom(room, "socket-2"));
+  ({ room } = R.addBot(room));
+  room = R.setReady(room, "p1", true);
+  room = R.setReady(room, "p2", true);
+  assert.equal(room.phase, "starting");
+  room = R.beginMatch(room);
+  assert.equal(room.phase, "active");
+
+  // socket-2 (human) leaves; only the bot (p3) and socket-1 (human) remain --
+  // still fine, should NOT delete.
+  let deleted;
+  ({ room, deleted } = R.handleDisconnect(room, "socket-2", 0));
+  assert.equal(deleted, false, "socket-1 is still a human playing against the bot -- should keep going");
+  assert.equal(room.phase, "active");
+
+  // Now socket-1 (the last human) also leaves -- only the bot remains.
+  ({ deleted } = R.handleDisconnect(room, "socket-1", 0));
+  assert.equal(deleted, true, "no humans left at all -- should tear the room down rather than let bots fight on for no one");
+});
+
 console.log(`\n${passed} room.js assertions passed`);
