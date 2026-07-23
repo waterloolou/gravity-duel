@@ -84,13 +84,25 @@ document.querySelector("[data-hangar-back]").addEventListener("click", () => {
 });
 
 const leaderboardErrorEl = document.querySelector("[data-leaderboard-error]");
+let leaderboardMode = "casual"; // "casual" | "ranked" -- which tab is active, drives what REQUEST_LEADERBOARD asks for
+function requestLeaderboard() {
+  net.send(MSG.REQUEST_LEADERBOARD, { ranked: leaderboardMode === "ranked" });
+}
 document.querySelector("[data-open-leaderboard]").addEventListener("click", () => {
   audioSystem.uiClick();
   const callsignInput = document.querySelector("[data-callsign-input]");
   if (callsignInput && profile?.displayName) callsignInput.value = profile.displayName;
   leaderboardErrorEl.textContent = "";
   showView("leaderboard");
-  net.send(MSG.REQUEST_LEADERBOARD);
+  requestLeaderboard();
+});
+document.querySelectorAll("[data-leaderboard-tab]").forEach((tab) => {
+  tab.addEventListener("click", () => {
+    audioSystem.uiClick();
+    leaderboardMode = tab.dataset.leaderboardTab;
+    document.querySelectorAll("[data-leaderboard-tab]").forEach((t) => t.classList.toggle("active", t === tab));
+    requestLeaderboard();
+  });
 });
 document.querySelector("[data-leaderboard-back]").addEventListener("click", () => {
   audioSystem.uiClick();
@@ -216,6 +228,13 @@ document.querySelector("[data-quick-play]").addEventListener("click", () => {
   net.send(MSG.QUICK_JOIN);
 });
 
+document.querySelector("[data-ranked-play]").addEventListener("click", () => {
+  audioSystem.resume();
+  audioSystem.uiClick();
+  homeError.textContent = "";
+  net.send(MSG.RANKED_JOIN);
+});
+
 document.querySelector("[data-create-room]").addEventListener("click", () => {
   audioSystem.resume();
   audioSystem.uiClick();
@@ -329,6 +348,12 @@ function enterLobby(code, playerNumber) {
   hud.dataset.roomCodeHud = code;
   showView("lobby");
   countdownEl.hidden = true;
+  // Reset synchronously here too (not just from the LOBBY_STATE handler
+  // below, which sets the real value moments later) -- otherwise a
+  // ranked-then-casual (or vice versa) rejoin in the same tab could
+  // flash the PREVIOUS room's badge state for one frame.
+  const rankedBadgeEl = document.querySelector("[data-ranked-badge]");
+  if (rankedBadgeEl) rankedBadgeEl.hidden = true;
   // Disabled synchronously here too, not just from the LOBBY_STATE handler
   // below -- closes the brief window between entering the lobby and that
   // first broadcast arriving, during which a real player could otherwise
@@ -364,7 +389,7 @@ net.on(MSG.PROFILE_STATE, (msg) => {
   // A saved callsign can change how (or whether) we show up in the ranked
   // list -- re-fetch rather than trying to patch the already-rendered rows
   // by hand.
-  if (!views.leaderboard.hidden) net.send(MSG.REQUEST_LEADERBOARD);
+  if (!views.leaderboard.hidden) requestLeaderboard();
 });
 
 net.on(MSG.CHALLENGE_COMPLETED, (msg) => {
@@ -425,6 +450,9 @@ net.on(MSG.LOBBY_STATE, (msg) => {
   }
   countdownEl.hidden = true;
 
+  const rankedBadgeEl = document.querySelector("[data-ranked-badge]");
+  if (rankedBadgeEl) rankedBadgeEl.hidden = !msg.ranked;
+
   playersInRoom = msg.players.length;
   playerListEl.innerHTML = msg.players
     .map((p) => {
@@ -448,7 +476,13 @@ net.on(MSG.LOBBY_STATE, (msg) => {
   }
 
   const addBotBtn = document.querySelector("[data-add-bot]");
-  if (addBotBtn) addBotBtn.disabled = playersInRoom >= 4; // mirrors room.js's MAX_PLAYERS -- just an early client-side hint, the server is the real gate
+  if (addBotBtn) {
+    // Ranked rating only means something between real opponents -- hidden
+    // outright rather than shown-disabled, since "you can't do this here at
+    // all" reads differently than "not right now."
+    addBotBtn.hidden = !!msg.ranked;
+    addBotBtn.disabled = playersInRoom >= 4; // mirrors room.js's MAX_PLAYERS -- just an early client-side hint, the server is the real gate
+  }
 });
 
 let countdownTimer = null;

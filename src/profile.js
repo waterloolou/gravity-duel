@@ -8,6 +8,7 @@
 
 import { SHIPS, WEAPONS, COSMETICS, DEFAULT_SHIP_ID, DEFAULT_WEAPON_ID, DEFAULT_COSMETIC_ID, UPGRADE_TREE, upgradeCost } from "./loadouts.js";
 import { createDefaultChallengeState } from "./challenges.js";
+import { DEFAULT_RATING } from "./elo.js";
 
 const DEFAULT_STATS = { wins: 0, losses: 0, matchesPlayed: 0, kills: 0, deaths: 0 };
 const DISPLAY_NAME_MAX_LENGTH = 16;
@@ -29,6 +30,8 @@ export function createDefaultProfile(playerId) {
     displayName: null, // shown on the leaderboard once set; null renders as an anonymous placeholder
     stats: { ...DEFAULT_STATS },
     challenges: createDefaultChallengeState(),
+    rating: DEFAULT_RATING, // Ranked queue only -- untouched by casual/private/bot matches, see elo.js
+    rankedMatchesPlayed: 0, // distinct from stats.matchesPlayed -- lets the ranked leaderboard exclude anyone still sitting at the default rating from never having actually played one
   };
 }
 

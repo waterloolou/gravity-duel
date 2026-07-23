@@ -504,4 +504,28 @@ check("a human disconnecting mid-active-match with only a bot remaining also tea
   assert.equal(deleted, true, "no humans left at all -- should tear the room down rather than let bots fight on for no one");
 });
 
+check("createRoom defaults to unranked; a ranked room can be created explicitly", () => {
+  const casual = R.createRoom("ABCD", "socket-1");
+  assert.equal(casual.ranked, false);
+  const ranked = R.createRoom("ABCD", "socket-1", true);
+  assert.equal(ranked.ranked, true);
+});
+
+check("findJoinableRoom never cross-matches a casual search into a ranked room or vice versa", () => {
+  const casual = R.createRoom("CASL", "socket-1");
+  const rankedRoom = R.createRoom("RANK", "socket-2", true);
+  assert.equal(R.findJoinableRoom([rankedRoom], false), null, "a casual search should not find a ranked room");
+  assert.equal(R.findJoinableRoom([casual], true), null, "a ranked search should not find a casual room");
+  assert.equal(R.findJoinableRoom([casual, rankedRoom], false), casual);
+  assert.equal(R.findJoinableRoom([casual, rankedRoom], true), rankedRoom);
+});
+
+check("addBot refuses to add a bot to a ranked room, regardless of phase", () => {
+  const room = R.createRoom("ABCD", "socket-1", true);
+  const { room: after, error, slot } = R.addBot(room);
+  assert.equal(error, "RANKED_NO_BOTS");
+  assert.equal(slot, null);
+  assert.equal(after, room, "should return the same reference on failure");
+});
+
 console.log(`\n${passed} room.js assertions passed`);

@@ -17,6 +17,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as Profile from "./profile.js";
 import * as Challenges from "./challenges.js";
+import * as Elo from "./elo.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "data");
 const DATA_PATH = path.join(DATA_DIR, "players.json");
@@ -125,6 +126,25 @@ export function recordChallengeProgress(playerId, trackKey, amount = 1) {
   return { profile, completed, reward };
 }
 
+// Applies a ranked match's result to every profile in `profileIds` (already
+// resolved from room seats to persistent profileIds by the caller -- see
+// server.js's creditRankedResult, which also decides who's eligible to be
+// in this list in the first place, e.g. excluding any seat with no
+// identified profile). Uses each player's CURRENT stored rating as Elo's
+// input, so the pairwise math in elo.js only ever needs to know about
+// this one match. Returns the new { playerId: rating } map.
+export function applyRankedResult(profileIds, winnerId) {
+  const currentRatings = {};
+  for (const id of profileIds) currentRatings[id] = get(id).rating ?? Elo.DEFAULT_RATING;
+  const nextRatings = Elo.applyMatchResult(currentRatings, profileIds, winnerId);
+  for (const id of profileIds) {
+    const profile = get(id);
+    profiles.set(id, { ...profile, rating: nextRatings[id], rankedMatchesPlayed: (profile.rankedMatchesPlayed ?? 0) + 1 });
+  }
+  markDirty();
+  return nextRatings;
+}
+
 // Overwrites the stored profile outright -- used after a pure profile.js
 // mutation (purchaseUnlock/setEquipped/setDisplayName) has already produced
 // the next profile object; this just commits it and schedules a flush.
@@ -147,6 +167,24 @@ export function getLeaderboard(requestingPlayerId, limit = 10) {
     .sort((a, b) => b.stats.wins - a.stats.wins || b.stats.kills - a.stats.kills);
 
   const toRow = (p, rank) => ({ rank, displayName: p.displayName || "Unnamed Pilot", stats: p.stats, isYou: p.playerId === requestingPlayerId });
+
+  const top = ranked.slice(0, limit).map((p, i) => toRow(p, i + 1));
+  const selfIndex = ranked.findIndex((p) => p.playerId === requestingPlayerId);
+  const self = selfIndex >= 0 ? toRow(ranked[selfIndex], selfIndex + 1) : null;
+
+  return { top, self };
+}
+
+// Same shape/philosophy as getLeaderboard, ranked by Elo rating instead of
+// wins. Filtered to rankedMatchesPlayed > 0 -- every profile starts at
+// DEFAULT_RATING, so without this filter, anyone who's never queued Ranked
+// at all would clutter the list tied at the default.
+export function getRankedLeaderboard(requestingPlayerId, limit = 10) {
+  const ranked = Array.from(profiles.values())
+    .filter((p) => p.rankedMatchesPlayed > 0)
+    .sort((a, b) => b.rating - a.rating);
+
+  const toRow = (p, rank) => ({ rank, displayName: p.displayName || "Unnamed Pilot", rating: p.rating, rankedMatchesPlayed: p.rankedMatchesPlayed, isYou: p.playerId === requestingPlayerId });
 
   const top = ranked.slice(0, limit).map((p, i) => toRow(p, i + 1));
   const selfIndex = ranked.findIndex((p) => p.playerId === requestingPlayerId);

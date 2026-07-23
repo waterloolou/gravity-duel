@@ -121,6 +121,7 @@ function promoteWaitingSpectators(code) {
 function lobbyStatePayload(room) {
   return {
     code: room.code,
+    ranked: !!room.ranked,
     players: R.activePlayerIds(room).map((pid) => ({
       playerNumber: pid,
       connected: room.players[pid].connected,
@@ -187,6 +188,48 @@ function creditChallengeProgress(entry, seatId, trackKey, amount = 1) {
       reward,
       labels: completed.map((id) => Challenges.CHALLENGE_POOL[id].label),
     });
+  }
+}
+
+// Only called for a ranked room's match_over (either path -- a natural
+// kills-based win, or a forfeit-by-disconnect win, see startTickLoop and
+// handleDisconnectSocket). Resolves each seat to its persistent profileId
+// (skipping any seat with no identified profile -- an anonymous player's
+// rating just never gets touched, same graceful-degradation philosophy as
+// currency/stats elsewhere) and runs the whole match through elo.js as one
+// pairwise-FFA result via ProfileStore.applyRankedResult.
+//
+// `extraProfileIdBySeat` covers a seat whose room.players entry has
+// ALREADY been cleared by the time this runs -- specifically the forfeit
+// path: room.js's handleDisconnect nulls the disconnecting player's slot
+// immediately (so a later rematch doesn't wait forever on a ready-up from
+// a socket that's already gone), which means the normal seat -> socket ->
+// profileId lookup below can no longer find them. handleDisconnectSocket
+// passes their profileId through this side channel instead, resolved from
+// its own still-valid `sock` reference before that socket is torn down.
+function creditRankedResult(entry, playerIds, winnerId, extraProfileIdBySeat = {}) {
+  const profileIdBySeat = { ...extraProfileIdBySeat };
+  for (const seatId of playerIds) {
+    if (profileIdBySeat[seatId]) continue;
+    const seat = entry.room.players[seatId];
+    const sock = seat && sockets.get(seat.socketId);
+    if (sock?.profileId) profileIdBySeat[seatId] = sock.profileId;
+  }
+  const identifiedProfileIds = Object.values(profileIdBySeat);
+  const winnerProfileId = profileIdBySeat[winnerId];
+  // Need the winner AND at least one opponent identified for an Elo update
+  // to mean anything -- otherwise this is a no-op rather than rating a
+  // "match" against phantom opponents.
+  if (!winnerProfileId || identifiedProfileIds.length < 2) return;
+  ProfileStore.applyRankedResult(identifiedProfileIds, winnerProfileId);
+  for (const [seatId, profileId] of Object.entries(profileIdBySeat)) {
+    // A seat resolved only via extraProfileIdBySeat has no live room slot
+    // (and often no live socket either, e.g. the disconnecting player in
+    // the forfeit path) -- the rating is already persisted regardless,
+    // this just skips telling someone who isn't there to hear it.
+    const seat = entry.room.players[seatId];
+    const sock = seat && sockets.get(seat.socketId);
+    if (sock) send(sock.ws, MSG.PROFILE_STATE, { profile: ProfileStore.get(profileId) });
   }
 }
 
@@ -333,6 +376,7 @@ function startTickLoop(code) {
         creditChallengeProgress(entry, state.winner, "wins");
         if (!entry.deathsThisMatch[state.winner]) creditChallengeProgress(entry, state.winner, "deathlessWins");
         creditChallengeProgress(entry, state.winner, "matches");
+        if (entry.room.ranked) creditRankedResult(entry, state.playerIds, state.winner);
         for (const id of state.playerIds) {
           if (id === state.winner) continue;
           updateProfileForSeat(entry, id, (pid) => {
@@ -402,6 +446,19 @@ function handleDisconnectSocket(socketId) {
       creditChallengeProgress(entry, room.winner, "wins");
       if (!entry.deathsThisMatch?.[room.winner]) creditChallengeProgress(entry, room.winner, "deathlessWins");
       creditChallengeProgress(entry, room.winner, "matches");
+      // entry.matchState still reflects the roster from right before this
+      // disconnect (this "over via forfeit" branch, unlike the "still
+      // active" one above, never called M.removePlayer) -- so the
+      // disconnecting player is correctly still counted as the loser here,
+      // not silently excluded from the Elo update just for having quit.
+      // Their own room seat is already cleared by now (room.js nulls it
+      // immediately on a forfeit), so their profileId has to come from
+      // this still-valid `sock` reference instead of the normal seat
+      // lookup -- see creditRankedResult's own comment on this.
+      if (room.ranked && entry.matchState) {
+        const extra = disconnectedId && sock.profileId ? { [disconnectedId]: sock.profileId } : {};
+        creditRankedResult(entry, entry.matchState.playerIds, room.winner, extra);
+      }
     }
   } else if (room.phase === "waiting") {
     // A pre-match disconnect can compact the roster down and open a seat --
@@ -412,14 +469,14 @@ function handleDisconnectSocket(socketId) {
   }
 }
 
-// Shared by CREATE_ROOM and the "no joinable room" branch of QUICK_JOIN.
-function createNewRoom(socketId, sock) {
+// Shared by CREATE_ROOM and the "no joinable room" branch of QUICK_JOIN/RANKED_JOIN.
+function createNewRoom(socketId, sock, ranked = false) {
   const code = R.generateRoomCode((c) => rooms.has(c));
   if (!code) {
     send(sock.ws, MSG.ERROR, { code: ERROR_CODES.SERVER_FULL, message: "Could not allocate a room code, try again." });
     return;
   }
-  const room = R.createRoom(code, socketId);
+  const room = R.createRoom(code, socketId, ranked);
   rooms.set(code, { room, matchState: null, inputs: {}, tickTimer: null, startTimer: null });
   sock.roomCode = code;
   sock.playerId = "p1";
@@ -502,6 +559,23 @@ function handleMessage(socketId, msg) {
         joinExistingRoom(target.code, socketId, sock);
       } else {
         createNewRoom(socketId, sock);
+      }
+      return;
+    }
+    case MSG.RANKED_JOIN: {
+      // Same matchmaking shape as QUICK_JOIN, but findJoinableRoom's
+      // ranked=true keeps this pool entirely separate from casual rooms --
+      // a ranked search can never land in (or create) a casual room and
+      // vice versa, so the two queues never cross-match.
+      if (sock.roomCode) {
+        send(sock.ws, MSG.ERROR, { code: ERROR_CODES.ALREADY_IN_ROOM, message: "You're already in a room." });
+        return;
+      }
+      const target = R.findJoinableRoom(Array.from(rooms.values(), (entry) => entry.room), true);
+      if (target) {
+        joinExistingRoom(target.code, socketId, sock);
+      } else {
+        createNewRoom(socketId, sock, true);
       }
       return;
     }
@@ -649,7 +723,8 @@ function handleMessage(socketId, msg) {
       return;
     }
     case MSG.REQUEST_LEADERBOARD: {
-      send(sock.ws, MSG.LEADERBOARD_STATE, ProfileStore.getLeaderboard(sock.profileId));
+      const board = msg.ranked ? ProfileStore.getRankedLeaderboard(sock.profileId) : ProfileStore.getLeaderboard(sock.profileId);
+      send(sock.ws, MSG.LEADERBOARD_STATE, { ranked: !!msg.ranked, ...board });
       return;
     }
   }

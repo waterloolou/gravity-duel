@@ -20,6 +20,7 @@ export const MSG = {
   ADD_BOT: "add_bot",
   REMOVE_BOT: "remove_bot",
   SEND_PING: "send_ping",
+  RANKED_JOIN: "ranked_join",
 
   // Server -> Client
   ROOM_CREATED: "room_created",
@@ -50,6 +51,7 @@ export const ERROR_CODES = {
   MAX_LEVEL_REACHED: "MAX_LEVEL_REACHED",
   INVALID_NAME: "INVALID_NAME",
   ROOM_NOT_JOINABLE: "ROOM_NOT_JOINABLE",
+  RANKED_NO_BOTS: "RANKED_NO_BOTS",
 };
 
 export const MATCH_STARTING_COUNTDOWN_MS = 3000;

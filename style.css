@@ -321,6 +321,19 @@ button.secondary:disabled {
   margin: 4px 0 0;
 }
 
+.ranked-badge {
+  display: inline-block;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: #fff;
+  background: rgba(255, 61, 90, 0.2);
+  border: 1px solid #ff3d5a;
+  padding: 4px 12px;
+  border-radius: 999px;
+  margin: 6px 0;
+}
+
 .lobby-actions {
   display: flex;
   justify-content: center;
@@ -524,6 +537,31 @@ button.secondary:disabled {
 
 .leaderboard-panel h2 {
   text-align: center;
+}
+
+.leaderboard-tabs {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.leaderboard-tab {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--muted);
+  font-family: inherit;
+  font-size: 0.85rem;
+  padding: 6px 16px;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.leaderboard-tab.active {
+  color: #fff;
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  box-shadow: 0 0 10px var(--accent-glow);
 }
 
 .callsign-row {

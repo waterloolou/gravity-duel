@@ -44,6 +44,8 @@
       <h2>Play online</h2>
       <button type="button" class="primary" data-quick-play>Play</button>
       <p class="quick-play-hint">Matches you into an open public game, or starts a new one.</p>
+      <button type="button" class="secondary" data-ranked-play>Ranked</button>
+      <p class="quick-play-hint">Same free-for-all, but your Elo rating is on the line -- no bots, tracked on its own leaderboard.</p>
       <button type="button" class="secondary" data-open-hangar>Hangar</button>
       <button type="button" class="secondary" data-open-leaderboard>Leaderboard</button>
       <details class="private-room">
@@ -59,6 +61,7 @@
 
     <section id="view-lobby" class="view panel" hidden>
       <h2>Room <strong data-room-code></strong></h2>
+      <div class="ranked-badge" data-ranked-badge hidden>⚔ RANKED</div>
       <ul class="player-list" data-player-list></ul>
       <button type="button" class="primary" data-ready-btn>Ready</button>
       <p class="status-text" data-lobby-status></p>
@@ -109,6 +112,10 @@
 
     <section id="view-leaderboard" class="view panel leaderboard-panel" hidden>
       <h2>Leaderboard</h2>
+      <div class="leaderboard-tabs">
+        <button type="button" class="leaderboard-tab active" data-leaderboard-tab="casual">Casual</button>
+        <button type="button" class="leaderboard-tab" data-leaderboard-tab="ranked">Ranked</button>
+      </div>
       <div class="callsign-row">
         <input type="text" maxlength="16" placeholder="Your callsign" data-callsign-input autocomplete="off" />
         <button type="button" class="secondary" data-save-callsign>Save</button>

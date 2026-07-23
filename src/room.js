@@ -28,7 +28,15 @@ export function activePlayerIds(room) {
   return PLAYER_SLOTS.filter((id) => room.players[id]);
 }
 
-export function createRoom(code, hostSocketId) {
+// `ranked` marks a room as matched via the Ranked queue rather than casual
+// Quick Play/private codes -- see findJoinableRoom (kept in a separate pool
+// from casual rooms so the two queues never cross-match) and addBot (no
+// bots allowed in a ranked room; see that function's own comment).
+// Everything else about a ranked room's lifecycle (phases, ready-up,
+// MAX_PLAYERS, disconnect handling) is identical to a casual one -- only
+// server.js treats a ranked match's result differently once it's over
+// (updating Elo rating on top of the usual stats/currency).
+export function createRoom(code, hostSocketId, ranked = false) {
   const players = { p1: { socketId: hostSocketId, connected: true, ready: false } };
   for (const slot of PLAYER_SLOTS.slice(1)) players[slot] = null;
   return {
@@ -36,6 +44,7 @@ export function createRoom(code, hostSocketId) {
     phase: "waiting", // waiting -> full -> starting -> active -> over
     players,
     spectators: [], // socketIds only -- see addSpectator's own comment for why no ready/connected tracking is needed here
+    ranked,
     winner: null,
     winReason: null,
   };
@@ -54,13 +63,15 @@ export function joinRoom(room, socketId) {
   return { room: { ...room, phase, players }, error: null, playerId: slot };
 }
 
-// Used by the server's public matchmaking entry point ("Play" button): picks
-// an existing room still open for more players instead of always spinning up
-// a fresh one, so unrelated players actually land in the same match rather
-// than each getting their own empty room. Works the same whether the room
-// currently has 1, 2, or 3 players in it -- anything short of MAX_PLAYERS.
-export function findJoinableRoom(roomList) {
-  return roomList.find((room) => room.phase === "waiting") ?? null;
+// Used by the server's public matchmaking entry points (Quick Play and
+// Ranked): picks an existing room still open for more players instead of
+// always spinning up a fresh one, so unrelated players actually land in the
+// same match rather than each getting their own empty room. Works the same
+// whether the room currently has 1, 2, or 3 players in it -- anything short
+// of MAX_PLAYERS. `ranked` keeps the two queues from ever cross-matching --
+// a casual Quick Play search never returns a ranked room and vice versa.
+export function findJoinableRoom(roomList, ranked = false) {
+  return roomList.find((room) => room.phase === "waiting" && !!room.ranked === ranked) ?? null;
 }
 
 // Spectators watch a room's broadcasts (lobby state pre-match, then
@@ -115,6 +126,7 @@ export function promoteSpectators(room) {
 // for it without needing bot-specific branches sprinkled through server.js.
 // Always seated as ready: true since there's no human to wait on.
 export function addBot(room) {
+  if (room.ranked) return { room, error: "RANKED_NO_BOTS", slot: null }; // ranked rating only means something between real opponents
   if (room.phase !== "waiting" && room.phase !== "full") return { room, error: "ROOM_NOT_JOINABLE", slot: null };
   const slot = PLAYER_SLOTS.find((id) => !room.players[id]);
   if (!slot) return { room, error: "ROOM_FULL", slot: null };
