@@ -31,6 +31,7 @@ export const MSG = {
   MATCH_EVENT: "match_event",
   PROFILE_STATE: "profile_state",
   LEADERBOARD_STATE: "leaderboard_state",
+  CHALLENGE_COMPLETED: "challenge_completed",
 };
 
 export const ERROR_CODES = {

@@ -16,6 +16,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import * as Profile from "./profile.js";
+import * as Challenges from "./challenges.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "data");
 const DATA_PATH = path.join(DATA_DIR, "players.json");
@@ -101,6 +102,27 @@ export function addStats(playerId, delta) {
   profiles.set(playerId, profile);
   markDirty();
   return profile;
+}
+
+// Advances `playerId`'s progress on today's active daily challenges that
+// track `trackKey` (see challenges.js's CHALLENGE_POOL), auto-pays out
+// currency for anything that just crossed its target, and marks those
+// claimed so the same completion can never be paid out twice. Returns
+// `completed`/`reward` (both empty/0 on an ordinary progress tick) so
+// server.js knows whether to also send a completion notification.
+export function recordChallengeProgress(playerId, trackKey, amount = 1) {
+  const current = get(playerId);
+  const nextChallenges = Challenges.recordProgress(current.challenges, trackKey, amount);
+  const completed = Challenges.newlyCompleted(nextChallenges);
+  let profile = { ...current, challenges: nextChallenges };
+  let reward = 0;
+  if (completed.length > 0) {
+    reward = completed.reduce((sum, id) => sum + Challenges.CHALLENGE_POOL[id].reward, 0);
+    profile = Profile.awardCurrency({ ...profile, challenges: Challenges.claim(nextChallenges, completed) }, reward);
+  }
+  profiles.set(playerId, profile);
+  markDirty();
+  return { profile, completed, reward };
 }
 
 // Overwrites the stored profile outright -- used after a pure profile.js

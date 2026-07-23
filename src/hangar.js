@@ -5,6 +5,7 @@
 
 import { MSG } from "../protocol.js";
 import * as Loadouts from "./loadouts.js";
+import * as Challenges from "./challenges.js";
 
 const UNLOCKED_FIELD_BY_KIND = { ship: "unlockedShips", weapon: "unlockedWeapons", cosmetic: "unlockedCosmetics" };
 const EQUIPPED_FIELD_BY_KIND = { ship: "equippedShip", weapon: "equippedWeapon", cosmetic: "equippedCosmetic" };
@@ -94,6 +95,29 @@ function buildUpgradeRow(stat, tree, profile, net, errorEl) {
   return row;
 }
 
+// Today's 3 rotating challenges are computed client-side (same pure
+// function the server uses, seeded off the same UTC date) rather than sent
+// over the wire -- profile.challenges only needs to carry progress/claimed
+// state, not redescribe the catalog every PROFILE_STATE.
+function buildChallengeRow(id, profile) {
+  const def = Challenges.CHALLENGE_POOL[id];
+  const challengeState = Challenges.ensureCurrentDay(profile.challenges);
+  const progress = challengeState.progress[id] ?? 0;
+  const claimed = challengeState.claimed.includes(id);
+
+  const row = document.createElement("div");
+  row.className = `challenge-row${claimed ? " claimed" : ""}`;
+  const pct = Math.min(100, (progress / def.target) * 100);
+  row.innerHTML = `
+    <div class="challenge-info">
+      <div class="challenge-name">${def.label}${claimed ? ' <span class="loadout-equipped-tag">DONE</span>' : ""}</div>
+      <div class="challenge-track"><div class="challenge-fill" style="width:${pct}%"></div></div>
+      <div class="challenge-progress">${Math.min(progress, def.target)} / ${def.target} &middot; ${def.reward} credits</div>
+    </div>
+  `;
+  return row;
+}
+
 // Called whenever the Hangar is shown and whenever a fresh PROFILE_STATE
 // arrives while it's open, so purchases/equips/upgrades reflect immediately
 // without needing a page reload.
@@ -103,7 +127,15 @@ export function renderHangar(profile, net) {
   const weaponGrid = document.querySelector("[data-weapon-grid]");
   const cosmeticGrid = document.querySelector("[data-cosmetic-grid]");
   const upgradeList = document.querySelector("[data-upgrade-list]");
+  const challengeList = document.querySelector("[data-challenge-list]");
   if (!profile || !shipGrid || !weaponGrid) return;
+
+  if (challengeList) {
+    challengeList.innerHTML = "";
+    for (const id of Challenges.dailyChallengeIds()) {
+      challengeList.appendChild(buildChallengeRow(id, profile));
+    }
+  }
 
   shipGrid.innerHTML = "";
   for (const [id, def] of Object.entries(Loadouts.SHIPS)) {

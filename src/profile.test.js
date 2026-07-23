@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import * as Profile from "./profile.js";
+import * as Challenges from "./challenges.js";
 
 let passed = 0;
 function check(name, fn) {
@@ -21,6 +22,7 @@ check("createDefaultProfile starts with zero currency and the free starter loado
   assert.deepEqual(p.upgrades, { thrust: 0, heat: 0, fireRate: 0, projSpeed: 0 });
   assert.equal(p.displayName, null);
   assert.deepEqual(p.stats, { wins: 0, losses: 0, matchesPlayed: 0, kills: 0, deaths: 0 });
+  assert.deepEqual(p.challenges, Challenges.createDefaultChallengeState());
 });
 
 check("awardCurrency adds to the balance without mutating the original profile", () => {

@@ -18,6 +18,7 @@ import * as Profile from "./src/profile.js";
 import * as ProfileStore from "./src/profile-store.js";
 import * as Loadouts from "./src/loadouts.js";
 import * as Bot from "./src/bot.js";
+import * as Challenges from "./src/challenges.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8892;
@@ -168,6 +169,26 @@ function updateProfileForSeat(entry, seatId, mutate) {
   send(sock.ws, MSG.PROFILE_STATE, { profile: ProfileStore.get(sock.profileId) });
 }
 
+// Same no-op-for-a-bot/unidentified-seat philosophy as updateProfileForSeat,
+// but for daily-challenge progress specifically -- kept separate rather
+// than folded into that function's `mutate` callback since a completion
+// needs its own CHALLENGE_COMPLETED notification on top of the ordinary
+// PROFILE_STATE, not just another ProfileStore call bundled in silently.
+function creditChallengeProgress(entry, seatId, trackKey, amount = 1) {
+  const seat = entry.room.players[seatId];
+  if (!seat) return;
+  const sock = sockets.get(seat.socketId);
+  if (!sock?.profileId) return;
+  const { profile, completed, reward } = ProfileStore.recordChallengeProgress(sock.profileId, trackKey, amount);
+  send(sock.ws, MSG.PROFILE_STATE, { profile });
+  if (completed.length > 0) {
+    send(sock.ws, MSG.CHALLENGE_COMPLETED, {
+      reward,
+      labels: completed.map((id) => Challenges.CHALLENGE_POOL[id].label),
+    });
+  }
+}
+
 function beginMatch(code) {
   const entry = rooms.get(code);
   if (!entry) return;
@@ -191,6 +212,7 @@ function beginMatch(code) {
   entry.matchState = M.createMatchState(activeIds, loadouts, cosmetics);
   entry.inputs = {};
   for (const id of activeIds) entry.inputs[id] = neutralInput(entry.matchState.ships[id]);
+  entry.deathsThisMatch = {}; // per-seat death count, reset per match -- feeds the "win without dying" daily challenge (see startTickLoop's match_over handling)
   startTickLoop(code);
 }
 
@@ -285,12 +307,17 @@ function startTickLoop(code) {
         broadcastToRoom(entry, MSG.MATCH_EVENT, ev);
         if (ev.event === "hit" || ev.event === "well_death" || ev.event === "moon_death") {
           updateProfileForSeat(entry, ev.victimId, (id) => ProfileStore.addStats(id, { deaths: 1 }));
+          entry.deathsThisMatch[ev.victimId] = (entry.deathsThisMatch[ev.victimId] ?? 0) + 1;
         }
         if (ev.event === "hit") {
           updateProfileForSeat(entry, ev.killerId, (id) => {
             ProfileStore.awardCurrency(id, KILL_CURRENCY_REWARD);
             ProfileStore.addStats(id, { kills: 1 });
           });
+          creditChallengeProgress(entry, ev.killerId, "kills");
+        }
+        if (ev.event === "pickup") {
+          creditChallengeProgress(entry, ev.playerId, "pickups");
         }
       }
 
@@ -302,12 +329,16 @@ function startTickLoop(code) {
           ProfileStore.awardCurrency(id, MATCH_WIN_CURRENCY_REWARD);
           ProfileStore.addStats(id, { wins: 1, matchesPlayed: 1 });
         });
+        creditChallengeProgress(entry, state.winner, "wins");
+        if (!entry.deathsThisMatch[state.winner]) creditChallengeProgress(entry, state.winner, "deathlessWins");
+        creditChallengeProgress(entry, state.winner, "matches");
         for (const id of state.playerIds) {
           if (id === state.winner) continue;
           updateProfileForSeat(entry, id, (pid) => {
             ProfileStore.awardCurrency(pid, MATCH_PARTICIPATION_CURRENCY_REWARD);
             ProfileStore.addStats(pid, { losses: 1, matchesPlayed: 1 });
           });
+          creditChallengeProgress(entry, id, "matches");
         }
       }
     }
@@ -367,6 +398,9 @@ function handleDisconnectSocket(socketId) {
         ProfileStore.awardCurrency(id, MATCH_WIN_CURRENCY_REWARD);
         ProfileStore.addStats(id, { wins: 1, matchesPlayed: 1 });
       });
+      creditChallengeProgress(entry, room.winner, "wins");
+      if (!entry.deathsThisMatch?.[room.winner]) creditChallengeProgress(entry, room.winner, "deathlessWins");
+      creditChallengeProgress(entry, room.winner, "matches");
     }
   } else if (room.phase === "waiting") {
     // A pre-match disconnect can compact the roster down and open a seat --

@@ -340,6 +340,11 @@ net.on(MSG.PROFILE_STATE, (msg) => {
   if (!views.leaderboard.hidden) net.send(MSG.REQUEST_LEADERBOARD);
 });
 
+net.on(MSG.CHALLENGE_COMPLETED, (msg) => {
+  audioSystem.pickup(); // reuses the same rewarding chime as an arena pickup
+  pushKillFeed(`Challenge complete: ${msg.labels.join(", ")} (+${msg.reward} credits)`);
+});
+
 net.on(MSG.ROOM_CREATED, (msg) => enterLobby(msg.code, msg.playerNumber));
 net.on(MSG.ROOM_JOINED, (msg) => enterLobby(msg.code, msg.playerNumber));
 
