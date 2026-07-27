@@ -21,6 +21,7 @@ export const MSG = {
   REMOVE_BOT: "remove_bot",
   SEND_PING: "send_ping",
   RANKED_JOIN: "ranked_join",
+  LATENCY_PING: "latency_ping", // round-trip latency measurement -- unrelated to SEND_PING's quick-chat callouts despite the similar name
 
   // Server -> Client
   ROOM_CREATED: "room_created",
@@ -36,6 +37,7 @@ export const MSG = {
   CHALLENGE_COMPLETED: "challenge_completed",
   ACHIEVEMENT_UNLOCKED: "achievement_unlocked",
   PING: "ping", // broadcast to the room in response to a SEND_PING -- see src/pings.js's fixed catalog
+  LATENCY_PONG: "latency_pong", // echoes LATENCY_PING's own timestamp back unmodified so the client can compute round-trip time
 };
 
 export const ERROR_CODES = {

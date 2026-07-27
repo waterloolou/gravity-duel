@@ -780,6 +780,15 @@ function handleMessage(socketId, msg) {
       send(sock.ws, MSG.LEADERBOARD_STATE, { ranked: !!msg.ranked, ...board });
       return;
     }
+    case MSG.LATENCY_PING: {
+      // Round-trip latency display -- echoes the client's own timestamp
+      // back unmodified so it never has to trust (or synchronize with)
+      // the server's clock, just its own. Valid in any state (no room,
+      // no identify) since it's not gameplay, just a connection-health
+      // readout.
+      send(sock.ws, MSG.LATENCY_PONG, { sentAt: msg.sentAt });
+      return;
+    }
   }
 }
 

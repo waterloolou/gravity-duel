@@ -1217,6 +1217,31 @@ button.secondary:disabled {
   height: 100%;
 }
 
+.latency-badge {
+  position: absolute;
+  bottom: 16px;
+  right: 16px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  color: #6bffa0;
+  background: rgba(10, 8, 20, 0.55);
+  border: 1px solid rgba(107, 255, 160, 0.35);
+  padding: 4px 10px;
+  border-radius: 999px;
+  pointer-events: none;
+}
+
+.latency-badge[data-tier="medium"] {
+  color: #ffe066;
+  border-color: rgba(255, 224, 102, 0.4);
+}
+
+.latency-badge[data-tier="bad"] {
+  color: #ff3d5a;
+  border-color: rgba(255, 61, 90, 0.4);
+}
+
 .kill-feed-item {
   font-size: 0.85rem;
   font-weight: 600;

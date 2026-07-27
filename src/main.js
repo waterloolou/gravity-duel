@@ -792,6 +792,19 @@ net.on(MSG.MATCH_STATE, () => {
   startGameLoop();
 });
 
+// Round-trip latency display, shown only during an actual match -- the
+// tiny badge in the HUD's bottom-right corner. net.send() already no-ops
+// silently while the socket isn't open, so this timer is safe to just
+// run unconditionally from page load rather than only while connected.
+const latencyBadgeEl = document.querySelector("[data-latency-badge]");
+net.on(MSG.LATENCY_PONG, (msg) => {
+  if (!latencyBadgeEl) return;
+  const rtt = Math.round(performance.now() - msg.sentAt);
+  latencyBadgeEl.textContent = `${rtt} ms`;
+  latencyBadgeEl.dataset.tier = rtt < 80 ? "good" : rtt < 150 ? "medium" : "bad";
+});
+setInterval(() => net.send(MSG.LATENCY_PING, { sentAt: performance.now() }), 2000);
+
 net.connect();
 
 // The on-screen THRUST/FIRE/CAM buttons (see index.html's .touch-controls,
