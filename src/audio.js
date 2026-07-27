@@ -169,6 +169,27 @@ export function createAudioSystem() {
     });
   }
 
+  function killstreak() {
+    if (!ctx) return;
+    const t = ctx.currentTime;
+    // A quick 3-note ascending brass-like stab -- punchier and shorter than
+    // matchOverStinger's 4-note fanfare, so a mid-match callout doesn't read
+    // as if the match itself just ended.
+    [523.25, 659.25, 987.77].forEach((freq, i) => {
+      const start = t + i * 0.08;
+      const osc = ctx.createOscillator();
+      osc.type = "sawtooth";
+      osc.frequency.setValueAtTime(freq, start);
+      const gain = ctx.createGain();
+      gain.gain.setValueAtTime(0.001, start);
+      gain.gain.linearRampToValueAtTime(0.2, start + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.3);
+      osc.connect(gain).connect(masterGain);
+      osc.start(start);
+      osc.stop(start + 0.32);
+    });
+  }
+
   function setThrusting(isThrusting) {
     if (!ctx) return;
     if (isThrusting && !thrustNode) {
@@ -195,5 +216,5 @@ export function createAudioSystem() {
     }
   }
 
-  return { resume, fire, explosion, pickup, uiClick, countdownTick, matchOverStinger, setThrusting };
+  return { resume, fire, explosion, pickup, uiClick, countdownTick, matchOverStinger, killstreak, setThrusting };
 }

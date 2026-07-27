@@ -239,6 +239,7 @@ const matchOverScoreEl = document.querySelector("[data-match-over-score]");
 const playAgainBtn = document.querySelector("[data-play-again]");
 const killFeedEl = document.querySelector("[data-kill-feed]");
 const damageFlashEl = document.querySelector("[data-damage-flash]");
+const killstreakBannerEl = document.querySelector("[data-killstreak-banner]");
 const spectateBadgeEl = document.querySelector("[data-spectate-badge]");
 const spectateHintEl = document.querySelector("[data-spectate-hint]");
 const spectateNextBtn = document.querySelector("[data-spectate-next]");
@@ -306,6 +307,13 @@ function triggerDamageFlash() {
   damageFlashEl.classList.remove("active");
   void damageFlashEl.offsetWidth; // force reflow so re-adding the class restarts the CSS animation
   damageFlashEl.classList.add("active");
+}
+
+function triggerKillstreakBanner(text) {
+  killstreakBannerEl.textContent = text;
+  killstreakBannerEl.classList.remove("active");
+  void killstreakBannerEl.offsetWidth; // force reflow so re-adding the class restarts the CSS animation
+  killstreakBannerEl.classList.add("active");
 }
 
 // "Opponent" only reads unambiguously in a 1v1 -- with up to 3 other players
@@ -586,6 +594,7 @@ net.on(MSG.LOBBY_STATE, (msg) => {
     roomPhase = "lobby";
     matchOverBanner.hidden = true;
     killFeedEl.innerHTML = "";
+    killstreakBannerEl.classList.remove("active");
     winner = null;
     winReason = null;
     showView("lobby");
@@ -736,6 +745,16 @@ net.on(MSG.MATCH_EVENT, (msg) => {
     const pos = P.PICKUP_SPAWN_POINTS.find((s) => s.id === msg.pickupId)?.pos;
     if (pos) gameRenderer?.spawnExplosion(pos, PICKUP_EVENT_COLORS[msg.pickupType] ?? 0xffffff);
     if (msg.playerId === selfId) pushKillFeed(`${PICKUP_LABELS[msg.pickupType] ?? "Pickup"} collected!`);
+    return;
+  }
+
+  if (msg.event === "killstreak") {
+    audioSystem.killstreak();
+    // Only ever shown to everyone in the room (not just the streaking
+    // player) since a multi-kill against the room is a shared spectacle,
+    // same spirit as the kill feed already broadcasting every death to
+    // everyone -- attribute it by name unless it's the local player's own.
+    triggerKillstreakBanner(msg.playerId === selfId ? msg.label : `${playerLabel(msg.playerId)}: ${msg.label}`);
     return;
   }
 

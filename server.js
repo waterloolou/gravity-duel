@@ -21,6 +21,7 @@ import * as Bot from "./src/bot.js";
 import * as Challenges from "./src/challenges.js";
 import * as Pings from "./src/pings.js";
 import * as Achievements from "./src/achievements.js";
+import * as Killstreak from "./src/killstreak.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8892;
@@ -298,6 +299,7 @@ function beginMatch(code) {
   entry.inputs = {};
   for (const id of activeIds) entry.inputs[id] = neutralInput(entry.matchState.ships[id]);
   entry.deathsThisMatch = {}; // per-seat death count, reset per match -- feeds the "win without dying" daily challenge (see startTickLoop's match_over handling)
+  entry.recentKills = {}; // per-seat kill timestamps within Killstreak.KILLSTREAK_WINDOW, reset per match -- see startTickLoop's "hit" handling
   startTickLoop(code);
 }
 
@@ -403,6 +405,9 @@ function startTickLoop(code) {
           });
           creditChallengeProgress(entry, ev.killerId, "kills");
           creditAchievementCheck(entry, ev.killerId);
+          const { timestamps, label } = Killstreak.recordKill(entry.recentKills[ev.killerId] ?? [], nowSec);
+          entry.recentKills[ev.killerId] = timestamps;
+          if (label) broadcastToRoom(entry, MSG.MATCH_EVENT, { event: "killstreak", playerId: ev.killerId, label });
         }
         if (ev.event === "pickup") {
           creditChallengeProgress(entry, ev.playerId, "pickups");

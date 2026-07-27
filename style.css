@@ -1478,6 +1478,40 @@ button.secondary:disabled {
   100% { opacity: 0; }
 }
 
+.killstreak-banner {
+  position: absolute;
+  top: 28%;
+  left: 50%;
+  transform: translate(-50%, -50%) scale(0.8);
+  font-family: var(--font-display);
+  font-size: 2.4rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: #ffd166;
+  text-shadow: 0 0 18px rgba(255, 209, 102, 0.8), 0 0 40px rgba(255, 140, 26, 0.5);
+  pointer-events: none;
+  opacity: 0;
+  white-space: nowrap;
+}
+
+.killstreak-banner.active {
+  animation: killstreak-pop 1.6s ease-out;
+}
+
+@keyframes killstreak-pop {
+  0% { opacity: 0; transform: translate(-50%, -50%) scale(0.6); }
+  15% { opacity: 1; transform: translate(-50%, -50%) scale(1.08); }
+  25% { transform: translate(-50%, -50%) scale(1); }
+  75% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+  100% { opacity: 0; transform: translate(-50%, -50%) scale(1); }
+}
+
+@media (pointer: coarse) {
+  .killstreak-banner {
+    font-size: 1.5rem;
+  }
+}
+
 .countdown-number {
   font-family: var(--font-display);
   font-size: 4rem;
