@@ -12,6 +12,29 @@ const UNLOCKED_FIELD_BY_KIND = { ship: "unlockedShips", weapon: "unlockedWeapons
 const EQUIPPED_FIELD_BY_KIND = { ship: "equippedShip", weapon: "equippedWeapon", cosmetic: "equippedCosmetic" };
 const EQUIP_PAYLOAD_KEY_BY_KIND = { ship: "shipId", weapon: "weaponId", cosmetic: "cosmeticId" };
 
+// Small hand-drawn silhouettes, single-color (currentColor, so each one
+// picks up the card's own accent via CSS) -- a lightweight visual identity
+// per ship/weapon instead of the stat text alone, without the real cost of
+// embedding a full 3D preview scene per Hangar card. Shape reflects the
+// loadout's own character: Juggernaut is wide/bulky, Wraith is a sharp
+// needle, Railgun is a single long beam, Scattergun is a spread of pellets.
+const SHIP_ICONS = {
+  interceptor: '<polygon points="24,4 40,42 24,32 8,42" />',
+  juggernaut: '<polygon points="24,4 44,18 44,42 4,42 4,18" />',
+  wraith: '<polygon points="24,2 30,34 24,45 18,34" />',
+};
+const WEAPON_ICONS = {
+  blaster: '<polygon points="21,4 29,4 25,20 38,20 20,44 25,26 10,26" />',
+  railgun: '<rect x="20" y="4" width="8" height="40" rx="3" />',
+  scattergun: '<circle cx="24" cy="9" r="4" /><circle cx="10" cy="30" r="4" /><circle cx="38" cy="30" r="4" /><circle cx="24" cy="42" r="3.5" />',
+};
+
+function iconHtml(kind, id) {
+  const shape = kind === "ship" ? SHIP_ICONS[id] : kind === "weapon" ? WEAPON_ICONS[id] : null;
+  if (!shape) return "";
+  return `<svg class="loadout-icon" viewBox="0 0 48 48" aria-hidden="true">${shape}</svg>`;
+}
+
 function statSummaryHtml(kind, def) {
   if (kind === "ship") {
     return `Thrust ${def.thrustAccel} &middot; Top speed ${def.maxSpeed} &middot; Heat capacity ${def.maxHeat}`;
@@ -32,6 +55,7 @@ function buildCard(kind, id, def, profile, net, errorEl) {
   const card = document.createElement("div");
   card.className = `loadout-card${isEquipped ? " equipped" : ""}`;
   card.innerHTML = `
+    ${iconHtml(kind, id)}
     <div class="loadout-name">${def.name}${isEquipped ? ' <span class="loadout-equipped-tag">EQUIPPED</span>' : ""}</div>
     <div class="loadout-stats">${statSummaryHtml(kind, def)}</div>
   `;

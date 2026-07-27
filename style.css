@@ -494,6 +494,19 @@ button.secondary:disabled {
   box-shadow: 0 0 14px var(--accent-glow);
 }
 
+.loadout-icon {
+  align-self: center;
+  width: 40px;
+  height: 40px;
+  color: var(--accent);
+  fill: currentColor;
+  opacity: 0.9;
+}
+
+.loadout-card.equipped .loadout-icon {
+  color: var(--accent-2);
+}
+
 .loadout-name {
   font-weight: 700;
 }
