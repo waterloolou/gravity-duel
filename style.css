@@ -246,10 +246,70 @@ button.secondary:disabled {
   cursor: not-allowed;
 }
 
-.quick-play-hint {
-  color: var(--muted);
-  font-size: 0.85rem;
-  margin: 10px 0 0;
+.play-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.play-card {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-family: var(--font-mono);
+  cursor: pointer;
+  background: var(--accent-button);
+  color: var(--accent-button-text);
+  border: 1px solid var(--accent-button);
+  border-radius: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  padding: 16px 14px;
+  transition: box-shadow 0.2s ease, background-color 0.2s ease, transform 0.15s ease;
+}
+
+.play-card:hover:not(:disabled) {
+  transform: translateY(-1px);
+  box-shadow: 0 0 16px var(--accent-glow);
+}
+
+.play-card-title {
+  text-transform: uppercase;
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+}
+
+.play-card-hint {
+  font-size: 0.7rem;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: normal;
+  opacity: 0.85;
+  text-align: center;
+}
+
+/* Ranked gets its own accent (matches the in-lobby ranked badge's red)
+   rather than sharing Quick Play's color -- the two queues shouldn't read
+   as interchangeable at a glance. */
+.play-card.ranked {
+  background: transparent;
+  color: var(--text);
+  border-color: #ff3d5a;
+}
+
+.play-card.ranked:hover:not(:disabled) {
+  background: rgba(255, 61, 90, 0.12);
+  box-shadow: 0 0 16px rgba(255, 61, 90, 0.35);
+}
+
+.home-secondary-row {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-bottom: 4px;
 }
 
 .private-room {
