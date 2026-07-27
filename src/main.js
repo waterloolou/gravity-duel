@@ -746,6 +746,23 @@ net.on(MSG.MATCH_EVENT, (msg) => {
     }
     matchOverScoreEl.textContent = scoreLine;
 
+    // shotsFired is only present after a natural (kills-based) match end --
+    // a forfeit cuts the match short, and "accuracy over an abandoned
+    // match" isn't a meaningful number, so it's simply absent there (same
+    // as finalScore already is for that case).
+    const matchOverAccuracyEl = document.querySelector("[data-match-over-accuracy]");
+    if (matchOverAccuracyEl) {
+      matchOverAccuracyEl.textContent = msg.shotsFired
+        ? Object.entries(msg.shotsFired)
+            .map(([id, shots]) => {
+              const kills = msg.finalScore?.[id] ?? 0;
+              const pct = shots > 0 ? Math.round((kills / shots) * 100) : 0;
+              return `${playerLabel(id)}: ${kills}/${shots} (${pct}%)`;
+            })
+            .join(" · ")
+        : "";
+    }
+
     // A spectator has no seat to request a rematch on behalf of (see the
     // matching server-side guard on REQUEST_REMATCH) -- hide the button
     // rather than let them click something that silently does nothing.

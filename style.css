@@ -1478,6 +1478,13 @@ button.secondary:disabled {
   margin: 0 0 12px;
 }
 
+.match-over-accuracy {
+  font-size: 0.85rem;
+  color: rgba(255, 255, 255, 0.6);
+  letter-spacing: 0.03em;
+  margin: -6px 0 12px;
+}
+
 .match-over-actions {
   display: flex;
   gap: 12px;

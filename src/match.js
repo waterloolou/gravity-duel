@@ -45,6 +45,7 @@ export function createShip(id, spawnPos, stats = P.DEFAULT_SHIP_STATS, engineCol
     yaw,
     pitch,
     kills: 0,
+    shotsFired: 0, // every hit in this game is instantly lethal (no partial damage), so kills alone already IS "hits landed" -- shotsFired is the only extra number post-match accuracy needs
     invulnerableUntil: 0,
     lastFireTime: -Infinity,
     thrusting: false,
@@ -188,7 +189,7 @@ export function stepMatch(state, inputs, dt, now) {
     // ship each tick) -- the owner can respawn with different stats, or
     // disconnect entirely, before an already-in-flight shot resolves.
     spawnedProjectiles.push({ ...proj, spawnTime: now, prevPos: proj.pos, maxSpeed: ship.stats.projectileMaxSpeed });
-    movedShips[id] = { ...ship, lastFireTime: now };
+    movedShips[id] = { ...ship, lastFireTime: now, shotsFired: ship.shotsFired + 1 };
   }
 
   // 3. Integrate projectiles (existing + newly spawned this tick, which
@@ -324,6 +325,10 @@ export function stepMatch(state, inputs, dt, now) {
       event: "match_over",
       winnerId: winner,
       finalScore: Object.fromEntries(state.playerIds.map((id) => [id, resolvedShips[id].kills])),
+      // Every hit in this game is instantly lethal (no partial damage), so
+      // kills alone already IS "hits landed" -- shotsFired is the only
+      // additional number a post-match accuracy readout needs.
+      shotsFired: Object.fromEntries(state.playerIds.map((id) => [id, resolvedShips[id].shotsFired])),
     });
   }
 

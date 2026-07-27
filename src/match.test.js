@@ -115,6 +115,34 @@ check("firing respects the cooldown -- holding fire does not spawn a projectile 
   assert.equal(state.projectiles.length, 2, "after the cooldown elapses, a new shot should fire");
 });
 
+check("shotsFired increments once per actual shot, independent of kills -- a miss still counts as a shot", () => {
+  let state = M.createMatchState();
+  assert.equal(state.ships.p1.shotsFired, 0);
+  const inputs = { p1: { ...NO_INPUT, firing: true }, p2: NO_INPUT };
+  ({ state } = M.stepMatch(state, inputs, P.TICK_DT, 0));
+  assert.equal(state.ships.p1.shotsFired, 1, "a shot that hits nothing should still count");
+  assert.equal(state.ships.p1.kills, 0);
+  ({ state } = M.stepMatch(state, inputs, P.TICK_DT, P.FIRE_COOLDOWN + 0.01));
+  assert.equal(state.ships.p1.shotsFired, 2, "a second shot after the cooldown should increment again");
+});
+
+check("match_over's shotsFired map lines up with finalScore for every player, so accuracy = kills/shotsFired can be computed client-side", () => {
+  let state = M.createMatchState();
+  // Seed p1 one kill short of winning, with some shots already on the
+  // books, then land the final (instant, pre-colocated) hit -- same
+  // "win is declared at exactly KILLS_TO_WIN" pattern used elsewhere.
+  state.ships.p2 = { ...state.ships.p2, kills: P.KILLS_TO_WIN - 1, shotsFired: 12, pos: { x: 150, y: 0, z: 0 } };
+  state.ships.p1 = { ...state.ships.p1, shotsFired: 3, pos: { x: 200, y: 0, z: 0 } };
+  state.projectiles.push({ id: 1, ownerId: "p2", pos: { x: 200, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 });
+  const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
+  const overEvent = events.find((e) => e.event === "match_over");
+  assert.ok(overEvent, "match_over should fire the instant p2's kill count reaches KILLS_TO_WIN");
+  assert.equal(overEvent.shotsFired.p2, 12);
+  assert.equal(overEvent.shotsFired.p1, 3);
+  assert.equal(overEvent.shotsFired.p1, next.ships.p1.shotsFired, "shotsFired in the event should match the final ship state");
+  assert.equal(Object.keys(overEvent.shotsFired).sort().join(), Object.keys(overEvent.finalScore).sort().join(), "shotsFired and finalScore should cover exactly the same player ids");
+});
+
 check("a projectile can never hit its own owner, even if perfectly co-located", () => {
   let state = M.createMatchState();
   // Force a projectile owned by p1 to start exactly at p1's own ship position.
