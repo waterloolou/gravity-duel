@@ -10,6 +10,7 @@ import { renderHangar } from "./hangar.js";
 import { renderLeaderboard } from "./leaderboard.js";
 import * as Loadouts from "./loadouts.js";
 import * as Settings from "./settings.js";
+import { createMinimap } from "./minimap.js";
 
 // Registered for PWA installability (Add to Home Screen), not offline play
 // -- see sw.js's own comment for why this game specifically shouldn't try
@@ -834,6 +835,8 @@ function startGameLoop() {
   const selfEngineColor = Loadouts.resolveEngineColor(profile?.equippedCosmetic);
   const renderer = createRenderer(canvas, selfEngineColor, settings.colorblindMode);
   gameRenderer = renderer;
+  const minimapCanvas = document.getElementById("minimap-canvas");
+  const minimap = minimapCanvas ? createMinimap(minimapCanvas) : null;
   renderer.resize();
   window.addEventListener("resize", () => {
     sizeCanvasFromLayout(canvas);
@@ -970,6 +973,7 @@ function startGameLoop() {
       renderer.updateProjectiles(snap.projectiles, renderId, () => audioSystem.fire());
       renderer.updateMoons(snap.tick);
       renderer.updatePickups(snap.pickups);
+      minimap?.draw(snap, renderId);
       // Killcam keeps the HUD ("You", heat/shield/boost) anchored to the
       // real local player even though the camera/self-ship-model is
       // following the killer -- you're still yourself, just watching a
