@@ -9,6 +9,6 @@
   },
   "scripts": {
     "start": "node server.js",
-    "test": "node src/physics.test.js && node src/match.test.js && node src/room.test.js && node src/input.test.js && node src/profile.test.js && node src/loadouts.test.js && node src/bot.test.js && node src/challenges.test.js && node src/elo.test.js"
+    "test": "node src/physics.test.js && node src/match.test.js && node src/room.test.js && node src/input.test.js && node src/profile.test.js && node src/loadouts.test.js && node src/bot.test.js && node src/challenges.test.js && node src/elo.test.js && node src/settings.test.js"
   }
 }

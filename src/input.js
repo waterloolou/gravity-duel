@@ -20,7 +20,22 @@ export function applyMouseDelta(state, dx, dy, sensitivity = MOUSE_SENSITIVITY, 
   };
 }
 
-export function createInputController(canvas) {
+// `options.sensitivityMultiplier` scales MOUSE_SENSITIVITY (Settings'
+// sensitivity slider) -- TOUCH_SENSITIVITY is deliberately left alone, a
+// touch drag's comfortable range is a screen-size thing, not a player
+// preference the way mouse feel is. `options.thrustKey`/`cameraToggleKey`
+// let Settings' key rebinding swap which physical key does what, defaulting
+// to the original W/C so every existing call site (and every earlier
+// Playwright verification pass) keeps working unchanged.
+export function createInputController(canvas, options = {}) {
+  // Mutable (not just read once at construction) so Settings' sliders/key
+  // rebinding can take effect immediately even if a match is already in
+  // progress in this tab, rather than requiring a fresh page load --
+  // main.js calls the setters below whenever a setting actually changes.
+  let sensitivityMultiplier = options.sensitivityMultiplier ?? 1;
+  let thrustKey = options.thrustKey ?? "KeyW";
+  let cameraToggleKey = options.cameraToggleKey ?? "KeyC";
+
   let aimYaw = 0;
   let aimPitch = 0;
   let thrusting = false;
@@ -33,7 +48,7 @@ export function createInputController(canvas) {
 
   document.addEventListener("mousemove", (e) => {
     if (document.pointerLockElement !== canvas) return;
-    const next = applyMouseDelta({ yaw: aimYaw, pitch: aimPitch }, e.movementX, e.movementY);
+    const next = applyMouseDelta({ yaw: aimYaw, pitch: aimPitch }, e.movementX, e.movementY, MOUSE_SENSITIVITY * sensitivityMultiplier);
     aimYaw = next.yaw;
     aimPitch = next.pitch;
   });
@@ -48,14 +63,14 @@ export function createInputController(canvas) {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.code === "KeyW") thrusting = true;
+    if (e.code === thrustKey) thrusting = true;
     // e.repeat guards against the OS's held-key auto-repeat re-firing this
     // every ~30ms -- without it, holding C would flicker between camera
     // modes many times per second instead of toggling once per press.
-    if (e.code === "KeyC" && !e.repeat) thirdPerson = !thirdPerson;
+    if (e.code === cameraToggleKey && !e.repeat) thirdPerson = !thirdPerson;
   });
   document.addEventListener("keyup", (e) => {
-    if (e.code === "KeyW") thrusting = false;
+    if (e.code === thrustKey) thrusting = false;
   });
 
   // Touch: dragging anywhere on the canvas aims (same yaw/pitch model as
@@ -150,5 +165,24 @@ export function createInputController(canvas) {
     thirdPerson = !thirdPerson;
   }
 
-  return { getState, setInitialAim, setThrusting, setFiring, toggleCamera };
+  function setSensitivityMultiplier(value) {
+    sensitivityMultiplier = value;
+  }
+  function setThrustKey(code) {
+    thrustKey = code;
+  }
+  function setCameraToggleKey(code) {
+    cameraToggleKey = code;
+  }
+
+  return {
+    getState,
+    setInitialAim,
+    setThrusting,
+    setFiring,
+    toggleCamera,
+    setSensitivityMultiplier,
+    setThrustKey,
+    setCameraToggleKey,
+  };
 }

@@ -7,13 +7,38 @@ let ctx = null;
 let masterGain = null;
 let thrustNode = null; // { source, gain } while thrust is held, else null
 
+export const DEFAULT_VOLUME = 0.55;
+// Module-level (not per-createAudioSystem-instance) since Settings' volume
+// slider needs to take effect even before a match's own createAudioSystem()
+// call has happened yet (e.g. adjusted from the home screen) -- there's
+// only ever one real audio system in the page regardless.
+let currentVolume = DEFAULT_VOLUME;
+let isMuted = false;
+
+function effectiveGain() {
+  return isMuted ? 0 : currentVolume;
+}
+
 function ensureContext() {
   if (ctx) return ctx;
   ctx = new (window.AudioContext || window.webkitAudioContext)();
   masterGain = ctx.createGain();
-  masterGain.gain.value = 0.55;
+  masterGain.gain.value = effectiveGain();
   masterGain.connect(ctx.destination);
   return ctx;
+}
+
+// Both callable before the AudioContext exists (Settings can be opened and
+// adjusted from the home screen, before any user gesture has created one) --
+// effectiveGain() is re-applied to the live node only if it already exists,
+// and ensureContext() picks up the current value regardless of ordering.
+export function setMasterVolume(v) {
+  currentVolume = Math.max(0, Math.min(1, v));
+  if (masterGain) masterGain.gain.value = effectiveGain();
+}
+export function setMuted(muted) {
+  isMuted = !!muted;
+  if (masterGain) masterGain.gain.value = effectiveGain();
 }
 
 function noiseBuffer(duration) {

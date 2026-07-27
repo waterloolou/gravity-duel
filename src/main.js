@@ -4,11 +4,12 @@ import { PINGS, PING_COOLDOWN_MS } from "./pings.js";
 import { createNetClient, INTERPOLATION_DELAY_MS } from "./net.js";
 import { createInputController } from "./input.js";
 import { createRenderer } from "./render.js";
-import { createAudioSystem } from "./audio.js";
+import { createAudioSystem, setMasterVolume, setMuted } from "./audio.js";
 import { updateHud } from "./hud.js";
 import { renderHangar } from "./hangar.js";
 import { renderLeaderboard } from "./leaderboard.js";
 import * as Loadouts from "./loadouts.js";
+import * as Settings from "./settings.js";
 
 // Registered for PWA installability (Add to Home Screen), not offline play
 // -- see sw.js's own comment for why this game specifically shouldn't try
@@ -19,6 +20,14 @@ if ("serviceWorker" in navigator) {
 
 const net = createNetClient(`ws://${location.host}/ws`);
 const audioSystem = createAudioSystem();
+
+// Applied immediately, before any match/audio-context exists -- both
+// setMasterVolume/setMuted and a future createInputController/createRenderer
+// call (see startGameLoop) read from this same object, so a player's saved
+// preferences are already in effect the instant the page loads.
+let settings = Settings.loadSettings();
+setMasterVolume(settings.masterVolume);
+setMuted(settings.muted);
 
 let selfId = null;
 let roomPhase = "home";
@@ -56,15 +65,112 @@ function getOrCreatePlayerId() {
 
 const views = {
   home: document.getElementById("view-home"),
+  settings: document.getElementById("view-settings"),
   lobby: document.getElementById("view-lobby"),
   spectateWait: document.getElementById("view-spectate-wait"),
   hangar: document.getElementById("view-hangar"),
   leaderboard: document.getElementById("view-leaderboard"),
   play: document.getElementById("view-play"),
 };
+const settingsGearBtn = document.querySelector("[data-open-settings]");
 function showView(name) {
   for (const [key, el] of Object.entries(views)) el.hidden = key !== name;
+  // Settings is deliberately unreachable mid-match: the gear lives in the
+  // always-visible header (even over #view-play), but opening it there
+  // would hide the canvas while the game loop (and pointer-lock input)
+  // keeps running underneath, with no sane "Back" target to return to.
+  if (settingsGearBtn) settingsGearBtn.hidden = name === "play";
 }
+
+// Settings is reachable from anywhere BUT #view-play (see showView) --
+// Back should return to wherever it was actually opened from, same
+// "remember where we came from" pattern as hangarReturnView below.
+let settingsReturnView = "home";
+const keyLabel = (code) => (code?.startsWith("Key") ? code.slice(3) : code ?? "?");
+function refreshSettingsUI() {
+  const volumeEl = document.querySelector("[data-settings-volume]");
+  const mutedEl = document.querySelector("[data-settings-muted]");
+  const sensitivityEl = document.querySelector("[data-settings-sensitivity]");
+  const colorblindEl = document.querySelector("[data-settings-colorblind]");
+  if (volumeEl) volumeEl.value = String(Math.round(settings.masterVolume * 100));
+  if (mutedEl) mutedEl.checked = settings.muted;
+  if (sensitivityEl) sensitivityEl.value = String(Math.round(settings.sensitivity * 100));
+  if (colorblindEl) colorblindEl.checked = settings.colorblindMode;
+  document.querySelectorAll("[data-rebind-key]").forEach((btn) => {
+    btn.textContent = keyLabel(settings[btn.dataset.rebindKey]);
+  });
+}
+settingsGearBtn?.addEventListener("click", () => {
+  audioSystem.uiClick();
+  settingsReturnView = Object.entries(views).find(([, el]) => !el.hidden)?.[0] ?? "home";
+  refreshSettingsUI();
+  showView("settings");
+});
+document.querySelector("[data-settings-back]")?.addEventListener("click", () => {
+  audioSystem.uiClick();
+  showView(settingsReturnView);
+});
+document.querySelector("[data-settings-volume]")?.addEventListener("input", (e) => {
+  settings = { ...settings, masterVolume: Settings.clampVolume(Number(e.target.value) / 100) };
+  setMasterVolume(settings.masterVolume);
+  Settings.saveSettings(settings);
+});
+document.querySelector("[data-settings-muted]")?.addEventListener("change", (e) => {
+  settings = { ...settings, muted: e.target.checked };
+  setMuted(settings.muted);
+  Settings.saveSettings(settings);
+});
+document.querySelector("[data-settings-sensitivity]")?.addEventListener("input", (e) => {
+  settings = { ...settings, sensitivity: Settings.clampSensitivity(Number(e.target.value) / 100) };
+  gameInput?.setSensitivityMultiplier(settings.sensitivity); // takes effect immediately even mid-match
+  Settings.saveSettings(settings);
+});
+document.querySelector("[data-settings-colorblind]")?.addEventListener("change", (e) => {
+  settings = { ...settings, colorblindMode: e.target.checked };
+  Settings.saveSettings(settings); // render.js only reads this at createRenderer() time -- see the settings-hint text in index.html
+});
+document.querySelectorAll("[data-rebind-key]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    audioSystem.uiClick();
+    const field = btn.dataset.rebindKey;
+    const originalLabel = btn.textContent;
+    btn.textContent = "Press a key…";
+    btn.disabled = true;
+    const capture = (e) => {
+      e.preventDefault();
+      // Capture phase + stopImmediatePropagation: input.js's own keydown
+      // listener (bubble phase) is still attached to `document` for the
+      // rest of this tab's session even once we've navigated away from
+      // #view-play (see gameInput's own comment) -- without this, the key
+      // being pressed to rebind would ALSO be interpreted as live game
+      // input (e.g. pressing W to rebind thrust would itself set
+      // thrusting=true on a backgrounded match).
+      e.stopImmediatePropagation();
+      document.removeEventListener("keydown", capture, true);
+      btn.disabled = false;
+      if (e.code === "Escape") {
+        btn.textContent = originalLabel; // cancel, no change
+        return;
+      }
+      settings = { ...settings, [field]: e.code };
+      gameInput?.[field === "thrustKey" ? "setThrustKey" : "setCameraToggleKey"](e.code);
+      Settings.saveSettings(settings);
+      btn.textContent = keyLabel(e.code);
+    };
+    document.addEventListener("keydown", capture, true);
+  });
+});
+document.querySelector("[data-settings-reset]")?.addEventListener("click", () => {
+  audioSystem.uiClick();
+  settings = { ...Settings.DEFAULT_SETTINGS };
+  Settings.saveSettings(settings);
+  setMasterVolume(settings.masterVolume);
+  setMuted(settings.muted);
+  gameInput?.setSensitivityMultiplier(settings.sensitivity);
+  gameInput?.setThrustKey(settings.thrustKey);
+  gameInput?.setCameraToggleKey(settings.cameraToggleKey);
+  refreshSettingsUI();
+});
 
 // The Hangar is reachable from both home and the lobby -- Back should
 // return to wherever it was opened from, not always home (a player mid-
@@ -524,6 +630,7 @@ let latestShips = null; // full snapshot (all players, self included), for looki
 let latestTick = 0;
 let latestPickups = null;
 let gameRenderer = null;
+let gameInput = null; // set in startGameLoop() -- lets Settings apply a live sensitivity/key-rebind change to an already-running match, not just the next one
 // Module-level (not local to startGameLoop's loop()) so MATCH_STARTING can
 // reset it -- a rematch's fresh match assigns a brand-new spawn facing, and
 // without this reset the input controller would stay pointed wherever the
@@ -708,10 +815,15 @@ function startGameLoop() {
   // WebGLRenderer, not after -- #view-play was `hidden` until the instant
   // before this runs, so the canvas has no meaningful CSS-derived size yet.
   sizeCanvasFromLayout(canvas);
-  const input = createInputController(canvas);
+  const input = createInputController(canvas, {
+    sensitivityMultiplier: settings.sensitivity,
+    thrustKey: settings.thrustKey,
+    cameraToggleKey: settings.cameraToggleKey,
+  });
+  gameInput = input;
   wireTouchControls(input);
   const selfEngineColor = Loadouts.resolveEngineColor(profile?.equippedCosmetic);
-  const renderer = createRenderer(canvas, selfEngineColor);
+  const renderer = createRenderer(canvas, selfEngineColor, settings.colorblindMode);
   gameRenderer = renderer;
   renderer.resize();
   window.addEventListener("resize", () => {

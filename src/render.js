@@ -13,7 +13,14 @@ const TRAJECTORY_PREVIEW_TICKS = 120; // ~4s forward, purely visual -- never aff
 // everything gameplay-relevant is self-lit MeshBasicMaterial, same reasoning
 // as the original build -- see the r155+ physical-light-units note below).
 const OWN_COLOR = 0x5be8ff;
-const ENEMY_COLOR = 0xff3d5a;
+const DEFAULT_ENEMY_COLOR = 0xff3d5a;
+// A red-green-colorblind-safe alternative to DEFAULT_ENEMY_COLOR -- a
+// distinctly orange hue reads clearly against OWN_COLOR's cyan/blue for
+// protanopia/deuteranopia (the two most common forms), unlike red vs. blue
+// which the rarer tritanopia can also confuse. Opted into via Settings,
+// not auto-detected (there's no reliable way to detect colorblindness from
+// the browser).
+const COLORBLIND_ENEMY_COLOR = 0xff8c1a;
 const WELL_COLOR = 0xffb454;
 const PICKUP_COLORS = { speed: 0xffe066, shield: 0x4fd1ff, vent: 0xff7a3d };
 
@@ -315,7 +322,12 @@ function createShipModel(geo, hullColor, initialEngineColor) {
   };
 }
 
-export function createRenderer(canvas, selfEngineColor = 0xffffff) {
+export function createRenderer(canvas, selfEngineColor = 0xffffff, colorblindMode = false) {
+  // Shadows the module-level default on purpose -- every other reference
+  // to ENEMY_COLOR below is inside this function's closure, so this one
+  // local rebinding is all that's needed to thread the setting through
+  // opponent ships, blaster bolts, and muzzle flashes alike.
+  const ENEMY_COLOR = colorblindMode ? COLORBLIND_ENEMY_COLOR : DEFAULT_ENEMY_COLOR;
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(0x05050a);
 
