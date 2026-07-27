@@ -6,6 +6,7 @@
 import { MSG } from "../protocol.js";
 import * as Loadouts from "./loadouts.js";
 import * as Challenges from "./challenges.js";
+import * as Achievements from "./achievements.js";
 
 const UNLOCKED_FIELD_BY_KIND = { ship: "unlockedShips", weapon: "unlockedWeapons", cosmetic: "unlockedCosmetics" };
 const EQUIPPED_FIELD_BY_KIND = { ship: "equippedShip", weapon: "equippedWeapon", cosmetic: "equippedCosmetic" };
@@ -143,6 +144,22 @@ function buildMatchHistoryRow(entry) {
   return row;
 }
 
+// Permanent, unlike challenges' daily rotation -- every achievement in the
+// catalog is always shown (locked ones greyed out rather than hidden), so
+// a player can see what's still ahead of them, not just what they've done.
+function buildAchievementRow(def, profile) {
+  const isUnlocked = (profile.achievementsUnlocked ?? []).includes(def.id);
+  const row = document.createElement("div");
+  row.className = `achievement-row${isUnlocked ? " unlocked" : " locked"}`;
+  row.innerHTML = `
+    <div class="achievement-info">
+      <div class="achievement-name">${def.label}${isUnlocked ? ' <span class="loadout-equipped-tag">UNLOCKED</span>' : ""}</div>
+      <div class="achievement-description">${def.description}</div>
+    </div>
+  `;
+  return row;
+}
+
 export function renderHangar(profile, net) {
   const errorEl = document.querySelector("[data-hangar-error]");
   const shipGrid = document.querySelector("[data-ship-grid]");
@@ -188,6 +205,14 @@ export function renderHangar(profile, net) {
       matchHistoryList.innerHTML = `<li class="match-history-empty">No matches played yet.</li>`;
     } else {
       for (const entry of history) matchHistoryList.appendChild(buildMatchHistoryRow(entry));
+    }
+  }
+
+  const achievementList = document.querySelector("[data-achievement-list]");
+  if (achievementList) {
+    achievementList.innerHTML = "";
+    for (const def of Object.values(Achievements.ACHIEVEMENTS)) {
+      achievementList.appendChild(buildAchievementRow(def, profile));
     }
   }
 }

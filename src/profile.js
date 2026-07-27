@@ -34,6 +34,7 @@ export function createDefaultProfile(playerId) {
     rating: DEFAULT_RATING, // Ranked queue only -- untouched by casual/private/bot matches, see elo.js
     rankedMatchesPlayed: 0, // distinct from stats.matchesPlayed -- lets the ranked leaderboard exclude anyone still sitting at the default rating from never having actually played one
     matchHistory: [], // newest first, see recordMatchHistory
+    achievementsUnlocked: [], // permanent, see achievements.js -- never reset the way challenges.js's daily progress is
   };
 }
 

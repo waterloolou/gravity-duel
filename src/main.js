@@ -504,6 +504,11 @@ net.on(MSG.CHALLENGE_COMPLETED, (msg) => {
   pushKillFeed(`Challenge complete: ${msg.labels.join(", ")} (+${msg.reward} credits)`);
 });
 
+net.on(MSG.ACHIEVEMENT_UNLOCKED, (msg) => {
+  audioSystem.pickup();
+  for (const label of msg.labels) pushKillFeed(`Achievement unlocked: ${label}`);
+});
+
 net.on(MSG.ROOM_CREATED, (msg) => enterLobby(msg.code, msg.playerNumber));
 net.on(MSG.ROOM_JOINED, (msg) => enterLobby(msg.code, msg.playerNumber));
 

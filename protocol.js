@@ -34,6 +34,7 @@ export const MSG = {
   PROFILE_STATE: "profile_state",
   LEADERBOARD_STATE: "leaderboard_state",
   CHALLENGE_COMPLETED: "challenge_completed",
+  ACHIEVEMENT_UNLOCKED: "achievement_unlocked",
   PING: "ping", // broadcast to the room in response to a SEND_PING -- see src/pings.js's fixed catalog
 };
 

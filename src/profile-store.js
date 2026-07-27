@@ -18,6 +18,7 @@ import { fileURLToPath } from "node:url";
 import * as Profile from "./profile.js";
 import * as Challenges from "./challenges.js";
 import * as Elo from "./elo.js";
+import * as Achievements from "./achievements.js";
 
 const DATA_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "data");
 const DATA_PATH = path.join(DATA_DIR, "players.json");
@@ -156,6 +157,22 @@ export function addMatchHistoryEntry(playerId, entry) {
   profiles.set(playerId, profile);
   markDirty();
   return profile;
+}
+
+// Re-checks `playerId`'s CURRENT stats against every achievement not yet
+// unlocked, permanently marks any newly-crossed ones, and returns just the
+// ids unlocked THIS call (empty on an ordinary check with nothing new) --
+// called from server.js right after any event that could cross a
+// threshold (a kill, a match ending), same shape as recordChallengeProgress's
+// completed/reward split.
+export function checkAchievements(playerId) {
+  const profile = get(playerId);
+  const unlocked = Achievements.checkNewlyUnlocked(profile);
+  if (unlocked.length === 0) return { profile, unlocked };
+  const nextProfile = { ...profile, achievementsUnlocked: [...(profile.achievementsUnlocked ?? []), ...unlocked] };
+  profiles.set(playerId, nextProfile);
+  markDirty();
+  return { profile: nextProfile, unlocked };
 }
 
 // Overwrites the stored profile outright -- used after a pure profile.js

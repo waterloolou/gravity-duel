@@ -20,6 +20,7 @@ import * as Loadouts from "./src/loadouts.js";
 import * as Bot from "./src/bot.js";
 import * as Challenges from "./src/challenges.js";
 import * as Pings from "./src/pings.js";
+import * as Achievements from "./src/achievements.js";
 
 const ROOT = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 8892;
@@ -192,6 +193,22 @@ function creditChallengeProgress(entry, seatId, trackKey, amount = 1) {
   }
 }
 
+// Re-checks a seat's lifetime stats against achievements.js's catalog and
+// notifies them of anything newly unlocked. Called right after any event
+// that could cross a threshold (a kill; see settleMatch for the other
+// call site, match end, which resolves profileId itself since a forfeit's
+// loser may have no live seat left by then).
+function creditAchievementCheck(entry, seatId) {
+  const seat = entry.room.players[seatId];
+  if (!seat) return;
+  const sock = sockets.get(seat.socketId);
+  if (!sock?.profileId) return;
+  const { profile, unlocked } = ProfileStore.checkAchievements(sock.profileId);
+  if (unlocked.length === 0) return;
+  send(sock.ws, MSG.PROFILE_STATE, { profile });
+  send(sock.ws, MSG.ACHIEVEMENT_UNLOCKED, { labels: unlocked.map((id) => Achievements.ACHIEVEMENTS[id].label) });
+}
+
 // Called for EVERY match's end (both paths -- a natural kills-based win in
 // startTickLoop, or a forfeit-by-disconnect win in handleDisconnectSocket),
 // casual or ranked. Resolves each seat to its persistent profileId
@@ -240,13 +257,20 @@ function settleMatch(entry, playerIds, winnerId, extraProfileIdBySeat = {}) {
       opponentCount: playerIds.length - 1,
       ratingChange: change ? change.after - change.before : null,
     });
+    const { unlocked } = ProfileStore.checkAchievements(profileId);
     // A seat resolved only via extraProfileIdBySeat has no live room slot
     // (and often no live socket either, e.g. the disconnecting player in
-    // the forfeit path) -- history/rating are already persisted regardless,
-    // this just skips telling someone who isn't there to hear it.
+    // the forfeit path) -- history/rating/achievements are already
+    // persisted regardless, this just skips telling someone who isn't
+    // there to hear it.
     const seat = entry.room.players[seatId];
     const sock = seat && sockets.get(seat.socketId);
-    if (sock) send(sock.ws, MSG.PROFILE_STATE, { profile: ProfileStore.get(profileId) });
+    if (sock) {
+      send(sock.ws, MSG.PROFILE_STATE, { profile: ProfileStore.get(profileId) });
+      if (unlocked.length > 0) {
+        send(sock.ws, MSG.ACHIEVEMENT_UNLOCKED, { labels: unlocked.map((id) => Achievements.ACHIEVEMENTS[id].label) });
+      }
+    }
   }
 }
 
@@ -378,6 +402,7 @@ function startTickLoop(code) {
             ProfileStore.addStats(id, { kills: 1 });
           });
           creditChallengeProgress(entry, ev.killerId, "kills");
+          creditAchievementCheck(entry, ev.killerId);
         }
         if (ev.event === "pickup") {
           creditChallengeProgress(entry, ev.playerId, "pickups");
@@ -395,7 +420,6 @@ function startTickLoop(code) {
         creditChallengeProgress(entry, state.winner, "wins");
         if (!entry.deathsThisMatch[state.winner]) creditChallengeProgress(entry, state.winner, "deathlessWins");
         creditChallengeProgress(entry, state.winner, "matches");
-        settleMatch(entry, state.playerIds, state.winner);
         for (const id of state.playerIds) {
           if (id === state.winner) continue;
           updateProfileForSeat(entry, id, (pid) => {
@@ -404,6 +428,11 @@ function startTickLoop(code) {
           });
           creditChallengeProgress(entry, id, "matches");
         }
+        // Runs last, once every player's wins/losses/matchesPlayed/currency
+        // for THIS match has already been applied above -- settleMatch's own
+        // achievement check and PROFILE_STATE send need final stats, not a
+        // still-in-progress snapshot from partway through this block.
+        settleMatch(entry, state.playerIds, state.winner);
       }
     }
 

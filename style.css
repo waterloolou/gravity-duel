@@ -690,6 +690,46 @@ button.secondary:disabled {
   list-style: none;
 }
 
+.achievement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.achievement-row {
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 0;
+  clip-path: polygon(10px 0, 100% 0, 100% calc(100% - 10px), calc(100% - 10px) 100%, 0 100%, 0 10px);
+  padding: 12px 14px;
+}
+
+.achievement-row.locked {
+  opacity: 0.5;
+}
+
+.achievement-row.unlocked {
+  border-color: var(--accent);
+  box-shadow: 0 0 14px var(--accent-glow);
+}
+
+.achievement-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+}
+
+.achievement-name {
+  font-weight: 700;
+  font-size: 0.9rem;
+}
+
+.achievement-description {
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
 .settings-row {
   display: flex;
   align-items: center;

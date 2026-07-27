@@ -27,6 +27,7 @@ check("createDefaultProfile starts with zero currency and the free starter loado
   assert.equal(p.rating, Elo.DEFAULT_RATING);
   assert.equal(p.rankedMatchesPlayed, 0);
   assert.deepEqual(p.matchHistory, []);
+  assert.deepEqual(p.achievementsUnlocked, []);
 });
 
 check("recordMatchHistory prepends newest-first and caps at 10 entries", () => {
