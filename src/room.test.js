@@ -409,6 +409,13 @@ check("addBot fills the next open slot as an always-ready bot", () => {
   assert.equal(after.players.p2.ready, true, "a bot needs no human to wait on, so it's ready from the moment it's seated");
   assert.equal(after.players.p2.socketId, null);
   assert.equal(after.phase, "waiting", "still short of MAX_PLAYERS");
+  assert.equal(after.players.p2.botDifficulty, "medium", "defaults to medium when none is given");
+});
+
+check("addBot stores whatever difficulty it's given", () => {
+  let room = R.createRoom("ABCD", "socket-1");
+  const { room: after } = R.addBot(room, "hard");
+  assert.equal(after.players.p2.botDifficulty, "hard");
 });
 
 check("addBot flips the room to full once it fills the last seat", () => {

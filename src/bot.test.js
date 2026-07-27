@@ -116,4 +116,38 @@ check("computeBotInput never thrusts while overheated", () => {
   assert.equal(input.thrusting, false);
 });
 
+check("easy difficulty fires with a much looser aim tolerance than hard", () => {
+  // Aimed 0.2 radians off -- well within easy's 0.35 tolerance, well outside hard's 0.06.
+  const bot = { pos: { x: 300, y: 0, z: 0 }, yaw: 0.2, pitch: 0, overheated: false, lastFireTime: -Infinity, stats: P.DEFAULT_SHIP_STATS };
+  const target = { pos: { x: 300, y: 0, z: 100 } };
+  const easyInput = Bot.computeBotInput(bot, target, 0, Bot.BOT_DIFFICULTIES.easy);
+  const hardInput = Bot.computeBotInput(bot, target, 0, Bot.BOT_DIFFICULTIES.hard);
+  assert.equal(easyInput.firing, true, "easy should fire even with fairly sloppy aim");
+  assert.equal(hardInput.firing, false, "hard should hold fire until much more precisely aimed");
+});
+
+check("hard difficulty starts evading the well from farther away than easy", () => {
+  // A distance where hard's (larger) safety margin has already kicked in but easy's (smaller) one hasn't yet.
+  const dist = P.WELL_RADIUS + P.SHIP_RADIUS + 50;
+  const bot = { pos: { x: dist, y: 0, z: 0 }, yaw: 0, pitch: 0, overheated: false, lastFireTime: -Infinity, stats: P.DEFAULT_SHIP_STATS };
+  const target = { pos: { x: -300, y: 0, z: 0 } }; // straight through the well from the bot's position
+  const towardWell = P.vNormalize(P.vSub(P.WELL_POS, bot.pos));
+
+  const easyInput = Bot.computeBotInput(bot, target, 0, Bot.BOT_DIFFICULTIES.easy);
+  const easyFacing = P.facingFromYawPitch(easyInput.aimYaw, easyInput.aimPitch);
+  assert.ok(P.vDot(easyFacing, towardWell) > 0, "easy shouldn't be evading yet at this distance, so it still aims toward the target (and the well)");
+
+  const hardInput = Bot.computeBotInput(bot, target, 0, Bot.BOT_DIFFICULTIES.hard);
+  const hardFacing = P.facingFromYawPitch(hardInput.aimYaw, hardInput.aimPitch);
+  assert.ok(P.vDot(hardFacing, towardWell) < 0, "hard should already be evading at this distance, steering away from the well");
+});
+
+check("computeBotInput defaults to medium difficulty when none is given", () => {
+  const bot = { pos: { x: 300, y: 0, z: 0 }, yaw: 0.2, pitch: 0, overheated: false, lastFireTime: -Infinity, stats: P.DEFAULT_SHIP_STATS };
+  const target = { pos: { x: 300, y: 0, z: 100 } };
+  const defaultInput = Bot.computeBotInput(bot, target, 0);
+  const explicitMediumInput = Bot.computeBotInput(bot, target, 0, Bot.BOT_DIFFICULTIES.medium);
+  assert.deepEqual(defaultInput, explicitMediumInput);
+});
+
 console.log(`\n${passed} bot.js assertions passed`);

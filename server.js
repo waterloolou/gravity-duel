@@ -127,6 +127,7 @@ function lobbyStatePayload(room) {
       connected: room.players[pid].connected,
       ready: room.players[pid].ready,
       isBot: !!room.players[pid].isBot,
+      botDifficulty: room.players[pid].botDifficulty ?? null,
     })),
   };
 }
@@ -341,9 +342,11 @@ function startTickLoop(code) {
       // reads it -- same shape/timing as a real player's input, just
       // sourced from bot.js's pure AI instead of a WebSocket message.
       for (const id of entry.matchState.playerIds) {
-        if (!entry.room.players[id]?.isBot) continue;
+        const seat = entry.room.players[id];
+        if (!seat?.isBot) continue;
+        const difficulty = Bot.BOT_DIFFICULTIES[seat.botDifficulty] ?? Bot.BOT_DIFFICULTIES[Bot.DEFAULT_BOT_DIFFICULTY];
         const targetId = Bot.pickTarget(id, entry.matchState.ships);
-        entry.inputs[id] = Bot.computeBotInput(entry.matchState.ships[id], targetId ? entry.matchState.ships[targetId] : null, nowSec);
+        entry.inputs[id] = Bot.computeBotInput(entry.matchState.ships[id], targetId ? entry.matchState.ships[targetId] : null, nowSec, difficulty);
       }
       const { state, events } = M.stepMatch(entry.matchState, entry.inputs, P.TICK_DT, nowSec);
       entry.matchState = state;
@@ -596,7 +599,11 @@ function handleMessage(socketId, msg) {
       // just be an arbitrary restriction with no real benefit.
       const entry = rooms.get(sock.roomCode);
       if (!entry || !sock.playerId) return;
-      const { room, error } = R.addBot(entry.room);
+      // An unrecognized/missing difficulty falls back to medium rather than
+      // rejecting the request outright -- same "never block on a cosmetic
+      // detail" philosophy as an unrecognized ship/weapon id elsewhere.
+      const difficulty = Bot.BOT_DIFFICULTIES[msg.difficulty] ? msg.difficulty : Bot.DEFAULT_BOT_DIFFICULTY;
+      const { room, error } = R.addBot(entry.room, difficulty);
       if (error) {
         send(sock.ws, MSG.ERROR, { code: ERROR_CODES[error] ?? error, message: "Couldn't add a bot right now." });
         return;

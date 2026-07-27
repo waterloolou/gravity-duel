@@ -125,12 +125,16 @@ export function promoteSpectators(room) {
 // reconcilePlayerIdsForRoom, disconnect-by-socketId) already safely no-ops
 // for it without needing bot-specific branches sprinkled through server.js.
 // Always seated as ready: true since there's no human to wait on.
-export function addBot(room) {
+// `difficulty` is stored as-is (room.js doesn't know or care what
+// difficulties exist -- server.js validates the requested value against
+// bot.js's BOT_DIFFICULTIES before ever calling this, same layering as
+// everywhere else pure state lives separately from the catalog it refers to).
+export function addBot(room, difficulty = "medium") {
   if (room.ranked) return { room, error: "RANKED_NO_BOTS", slot: null }; // ranked rating only means something between real opponents
   if (room.phase !== "waiting" && room.phase !== "full") return { room, error: "ROOM_NOT_JOINABLE", slot: null };
   const slot = PLAYER_SLOTS.find((id) => !room.players[id]);
   if (!slot) return { room, error: "ROOM_FULL", slot: null };
-  const players = { ...room.players, [slot]: { socketId: null, isBot: true, connected: true, ready: true } };
+  const players = { ...room.players, [slot]: { socketId: null, isBot: true, botDifficulty: difficulty, connected: true, ready: true } };
   const filled = PLAYER_SLOTS.filter((id) => players[id]).length;
   const phase = filled >= MAX_PLAYERS ? "full" : "waiting";
   return { room: { ...room, phase, players }, error: null, slot };

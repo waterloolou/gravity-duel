@@ -386,7 +386,8 @@ copyInviteBtn?.addEventListener("click", async () => {
 
 document.querySelector("[data-add-bot]")?.addEventListener("click", () => {
   audioSystem.uiClick();
-  net.send(MSG.ADD_BOT);
+  const difficulty = document.querySelector("[data-bot-difficulty]")?.value;
+  net.send(MSG.ADD_BOT, { difficulty });
 });
 
 // Bot rows are rebuilt from scratch on every LOBBY_STATE (see that handler),
@@ -563,7 +564,8 @@ net.on(MSG.LOBBY_STATE, (msg) => {
   playerListEl.innerHTML = msg.players
     .map((p) => {
       if (p.isBot) {
-        return `<li data-player-row="${p.playerNumber}">BOT — ready <button type="button" class="bot-remove" data-remove-bot="${p.playerNumber}">Remove</button></li>`;
+        const difficultyLabel = p.botDifficulty ? p.botDifficulty[0].toUpperCase() + p.botDifficulty.slice(1) : "Medium";
+        return `<li data-player-row="${p.playerNumber}">BOT (${difficultyLabel}) — ready <button type="button" class="bot-remove" data-remove-bot="${p.playerNumber}">Remove</button></li>`;
       }
       return `<li data-player-row="${p.playerNumber}">${p.playerNumber}${p.playerNumber === selfId ? " (you)" : ""} — ${p.ready ? "ready" : "not ready"}</li>`;
     })
@@ -582,11 +584,13 @@ net.on(MSG.LOBBY_STATE, (msg) => {
   }
 
   const addBotBtn = document.querySelector("[data-add-bot]");
+  const botDifficultySelect = document.querySelector("[data-bot-difficulty]");
   if (addBotBtn) {
     // Ranked rating only means something between real opponents -- hidden
     // outright rather than shown-disabled, since "you can't do this here at
     // all" reads differently than "not right now."
     addBotBtn.hidden = !!msg.ranked;
+    if (botDifficultySelect) botDifficultySelect.hidden = !!msg.ranked;
     addBotBtn.disabled = playersInRoom >= 4; // mirrors room.js's MAX_PLAYERS -- just an early client-side hint, the server is the real gate
   }
 });

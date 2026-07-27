@@ -419,9 +419,26 @@ button.secondary:disabled {
 
 .lobby-actions {
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
+  align-items: center;
   gap: 10px;
   margin-top: 16px;
+}
+
+.add-bot-row {
+  display: flex;
+  gap: 6px;
+}
+
+.add-bot-row select {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  color: var(--accent);
+  background: var(--panel-alt);
+  border: 1.5px solid var(--accent);
+  border-radius: 0;
+  padding: 0 8px;
 }
 
 .hangar-panel {

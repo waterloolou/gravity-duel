@@ -109,7 +109,14 @@
       <div class="countdown-number" data-countdown hidden></div>
       <div class="lobby-actions">
         <button type="button" class="secondary" data-copy-invite>Copy Invite Link</button>
-        <button type="button" class="secondary" data-add-bot>Add Bot</button>
+        <div class="add-bot-row">
+          <select data-bot-difficulty aria-label="Bot difficulty">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+          <button type="button" class="secondary" data-add-bot>Add Bot</button>
+        </div>
         <button type="button" class="secondary" data-open-hangar>Hangar</button>
       </div>
     </section>
