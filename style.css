@@ -382,6 +382,35 @@ button.secondary:disabled {
   box-shadow: 0 0 10px var(--accent-2-glow);
 }
 
+.room-browser-list {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+
+.room-browser-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: var(--accent-soft);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 0.85rem;
+}
+
+.room-browser-empty {
+  color: var(--muted);
+  font-size: 0.85rem;
+  text-align: center;
+  list-style: none;
+}
+
 .error-text {
   color: var(--bad-text);
   min-height: 1.2em;

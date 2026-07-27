@@ -789,6 +789,18 @@ function handleMessage(socketId, msg) {
       send(sock.ws, MSG.LATENCY_PONG, { sentAt: msg.sentAt });
       return;
     }
+    case MSG.REQUEST_ROOM_LIST: {
+      // Casual, still-"waiting" (has an open seat) rooms only -- ranked
+      // rooms have no business being browsed (Ranked is matched via its
+      // own queue, not picked by hand), and anything full/starting/active
+      // isn't joinable as a player anyway (JOIN_ROOM would just route it
+      // to spectating, a different feature with its own entry point).
+      const list = Array.from(rooms.values())
+        .filter((entry) => entry.room.phase === "waiting" && !entry.room.ranked)
+        .map((entry) => ({ code: entry.room.code, playerCount: R.activePlayerIds(entry.room).length, maxPlayers: R.MAX_PLAYERS }));
+      send(sock.ws, MSG.ROOM_LIST, { rooms: list });
+      return;
+    }
   }
 }
 

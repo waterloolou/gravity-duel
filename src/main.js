@@ -361,6 +361,43 @@ document.querySelector("[data-join-room]").addEventListener("click", () => {
   net.send(MSG.JOIN_ROOM, { code });
 });
 
+const roomBrowserListEl = document.querySelector("[data-room-browser-list]");
+document.querySelector("[data-browse-rooms]")?.addEventListener("click", () => {
+  audioSystem.resume();
+  audioSystem.uiClick();
+  homeError.textContent = "";
+  net.send(MSG.REQUEST_ROOM_LIST);
+});
+
+net.on(MSG.ROOM_LIST, (msg) => {
+  if (!roomBrowserListEl) return;
+  roomBrowserListEl.hidden = false;
+  if (msg.rooms.length === 0) {
+    roomBrowserListEl.innerHTML = `<li class="room-browser-empty">No open rooms right now -- create one instead.</li>`;
+    return;
+  }
+  roomBrowserListEl.innerHTML = msg.rooms
+    .map(
+      (r) => `
+      <li class="room-browser-row">
+        <span>${r.code} · ${r.playerCount}/${r.maxPlayers} players</span>
+        <button type="button" class="secondary" data-browse-join="${r.code}">Join</button>
+      </li>`
+    )
+    .join("");
+});
+
+// Rows are rebuilt from scratch on every ROOM_LIST, so the Join buttons are
+// wired via delegation on the always-present list container rather than
+// re-binding a listener per row every time (same pattern as the lobby's
+// bot-remove buttons).
+roomBrowserListEl?.addEventListener("click", (e) => {
+  const btn = e.target.closest("[data-browse-join]");
+  if (!btn) return;
+  audioSystem.uiClick();
+  net.send(MSG.JOIN_ROOM, { code: btn.dataset.browseJoin });
+});
+
 if (inviteCode) {
   const joinInput = document.querySelector("[data-join-code-input]");
   joinInput.value = inviteCode.toUpperCase();
