@@ -128,21 +128,34 @@ export function recordChallengeProgress(playerId, trackKey, amount = 1) {
 
 // Applies a ranked match's result to every profile in `profileIds` (already
 // resolved from room seats to persistent profileIds by the caller -- see
-// server.js's creditRankedResult, which also decides who's eligible to be
-// in this list in the first place, e.g. excluding any seat with no
-// identified profile). Uses each player's CURRENT stored rating as Elo's
-// input, so the pairwise math in elo.js only ever needs to know about
-// this one match. Returns the new { playerId: rating } map.
+// server.js's settleMatch, which also decides who's eligible to be in this
+// list in the first place, e.g. excluding any seat with no identified
+// profile). Uses each player's CURRENT stored rating as Elo's input, so
+// the pairwise math in elo.js only ever needs to know about this one
+// match. Returns { playerId: { before, after } } -- the raw new rating
+// alone isn't enough for settleMatch's match-history entry, which wants
+// the signed delta.
 export function applyRankedResult(profileIds, winnerId) {
   const currentRatings = {};
   for (const id of profileIds) currentRatings[id] = get(id).rating ?? Elo.DEFAULT_RATING;
   const nextRatings = Elo.applyMatchResult(currentRatings, profileIds, winnerId);
+  const changes = {};
   for (const id of profileIds) {
     const profile = get(id);
     profiles.set(id, { ...profile, rating: nextRatings[id], rankedMatchesPlayed: (profile.rankedMatchesPlayed ?? 0) + 1 });
+    changes[id] = { before: currentRatings[id], after: nextRatings[id] };
   }
   markDirty();
-  return nextRatings;
+  return changes;
+}
+
+// Records one match-history entry (see profile.js's own comment on the
+// shape) for `playerId`, newest first, capped at 10.
+export function addMatchHistoryEntry(playerId, entry) {
+  const profile = Profile.recordMatchHistory(get(playerId), entry);
+  profiles.set(playerId, profile);
+  markDirty();
+  return profile;
 }
 
 // Overwrites the stored profile outright -- used after a pure profile.js

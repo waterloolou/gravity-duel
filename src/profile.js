@@ -12,6 +12,7 @@ import { DEFAULT_RATING } from "./elo.js";
 
 const DEFAULT_STATS = { wins: 0, losses: 0, matchesPlayed: 0, kills: 0, deaths: 0 };
 const DISPLAY_NAME_MAX_LENGTH = 16;
+const MAX_MATCH_HISTORY = 10;
 
 export function createDefaultProfile(playerId) {
   const now = Date.now();
@@ -32,7 +33,17 @@ export function createDefaultProfile(playerId) {
     challenges: createDefaultChallengeState(),
     rating: DEFAULT_RATING, // Ranked queue only -- untouched by casual/private/bot matches, see elo.js
     rankedMatchesPlayed: 0, // distinct from stats.matchesPlayed -- lets the ranked leaderboard exclude anyone still sitting at the default rating from never having actually played one
+    matchHistory: [], // newest first, see recordMatchHistory
   };
+}
+
+// Newest first, capped at MAX_MATCH_HISTORY -- older entries just fall off
+// the end rather than growing the profile forever. `entry` shape:
+// { timestamp, result: "win"|"loss", ranked, opponentCount, ratingChange }
+// (ratingChange is null for a casual match, a signed integer for ranked).
+export function recordMatchHistory(profile, entry) {
+  const history = [entry, ...(profile.matchHistory ?? [])].slice(0, MAX_MATCH_HISTORY);
+  return { ...profile, matchHistory: history };
 }
 
 export function awardCurrency(profile, amount) {

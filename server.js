@@ -192,13 +192,14 @@ function creditChallengeProgress(entry, seatId, trackKey, amount = 1) {
   }
 }
 
-// Only called for a ranked room's match_over (either path -- a natural
-// kills-based win, or a forfeit-by-disconnect win, see startTickLoop and
-// handleDisconnectSocket). Resolves each seat to its persistent profileId
+// Called for EVERY match's end (both paths -- a natural kills-based win in
+// startTickLoop, or a forfeit-by-disconnect win in handleDisconnectSocket),
+// casual or ranked. Resolves each seat to its persistent profileId
 // (skipping any seat with no identified profile -- an anonymous player's
-// rating just never gets touched, same graceful-degradation philosophy as
-// currency/stats elsewhere) and runs the whole match through elo.js as one
-// pairwise-FFA result via ProfileStore.applyRankedResult.
+// history/rating just never gets touched, same graceful-degradation
+// philosophy as currency/stats elsewhere), records a match-history entry
+// for every identified player, and -- ranked rooms only -- also runs the
+// whole match through elo.js as one pairwise-FFA result.
 //
 // `extraProfileIdBySeat` covers a seat whose room.players entry has
 // ALREADY been cleared by the time this runs -- specifically the forfeit
@@ -208,7 +209,7 @@ function creditChallengeProgress(entry, seatId, trackKey, amount = 1) {
 // profileId lookup below can no longer find them. handleDisconnectSocket
 // passes their profileId through this side channel instead, resolved from
 // its own still-valid `sock` reference before that socket is torn down.
-function creditRankedResult(entry, playerIds, winnerId, extraProfileIdBySeat = {}) {
+function settleMatch(entry, playerIds, winnerId, extraProfileIdBySeat = {}) {
   const profileIdBySeat = { ...extraProfileIdBySeat };
   for (const seatId of playerIds) {
     if (profileIdBySeat[seatId]) continue;
@@ -218,15 +219,30 @@ function creditRankedResult(entry, playerIds, winnerId, extraProfileIdBySeat = {
   }
   const identifiedProfileIds = Object.values(profileIdBySeat);
   const winnerProfileId = profileIdBySeat[winnerId];
+  if (identifiedProfileIds.length === 0) return;
+
   // Need the winner AND at least one opponent identified for an Elo update
-  // to mean anything -- otherwise this is a no-op rather than rating a
-  // "match" against phantom opponents.
-  if (!winnerProfileId || identifiedProfileIds.length < 2) return;
-  ProfileStore.applyRankedResult(identifiedProfileIds, winnerProfileId);
+  // to mean anything -- otherwise this is skipped rather than rating a
+  // "match" against phantom opponents. Match history still records below
+  // regardless (a solo-identified player in a room full of bots/anonymous
+  // opponents still gets their own win/loss logged).
+  let ratingChanges = {};
+  if (entry.room.ranked && winnerProfileId && identifiedProfileIds.length >= 2) {
+    ratingChanges = ProfileStore.applyRankedResult(identifiedProfileIds, winnerProfileId);
+  }
+
   for (const [seatId, profileId] of Object.entries(profileIdBySeat)) {
+    const change = ratingChanges[profileId];
+    ProfileStore.addMatchHistoryEntry(profileId, {
+      timestamp: Date.now(),
+      result: profileId === winnerProfileId ? "win" : "loss",
+      ranked: !!entry.room.ranked,
+      opponentCount: playerIds.length - 1,
+      ratingChange: change ? change.after - change.before : null,
+    });
     // A seat resolved only via extraProfileIdBySeat has no live room slot
     // (and often no live socket either, e.g. the disconnecting player in
-    // the forfeit path) -- the rating is already persisted regardless,
+    // the forfeit path) -- history/rating are already persisted regardless,
     // this just skips telling someone who isn't there to hear it.
     const seat = entry.room.players[seatId];
     const sock = seat && sockets.get(seat.socketId);
@@ -379,7 +395,7 @@ function startTickLoop(code) {
         creditChallengeProgress(entry, state.winner, "wins");
         if (!entry.deathsThisMatch[state.winner]) creditChallengeProgress(entry, state.winner, "deathlessWins");
         creditChallengeProgress(entry, state.winner, "matches");
-        if (entry.room.ranked) creditRankedResult(entry, state.playerIds, state.winner);
+        settleMatch(entry, state.playerIds, state.winner);
         for (const id of state.playerIds) {
           if (id === state.winner) continue;
           updateProfileForSeat(entry, id, (pid) => {
@@ -452,15 +468,16 @@ function handleDisconnectSocket(socketId) {
       // entry.matchState still reflects the roster from right before this
       // disconnect (this "over via forfeit" branch, unlike the "still
       // active" one above, never called M.removePlayer) -- so the
-      // disconnecting player is correctly still counted as the loser here,
-      // not silently excluded from the Elo update just for having quit.
-      // Their own room seat is already cleared by now (room.js nulls it
-      // immediately on a forfeit), so their profileId has to come from
-      // this still-valid `sock` reference instead of the normal seat
-      // lookup -- see creditRankedResult's own comment on this.
-      if (room.ranked && entry.matchState) {
+      // disconnecting player is correctly still counted as the loser here
+      // (match history AND, for a ranked room, the Elo update), not
+      // silently excluded just for having quit. Their own room seat is
+      // already cleared by now (room.js nulls it immediately on a
+      // forfeit), so their profileId has to come from this still-valid
+      // `sock` reference instead of the normal seat lookup -- see
+      // settleMatch's own comment on this.
+      if (entry.matchState) {
         const extra = disconnectedId && sock.profileId ? { [disconnectedId]: sock.profileId } : {};
-        creditRankedResult(entry, entry.matchState.playerIds, room.winner, extra);
+        settleMatch(entry, entry.matchState.playerIds, room.winner, extra);
       }
     }
   } else if (room.phase === "waiting") {

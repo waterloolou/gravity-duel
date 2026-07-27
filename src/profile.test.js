@@ -26,6 +26,17 @@ check("createDefaultProfile starts with zero currency and the free starter loado
   assert.deepEqual(p.challenges, Challenges.createDefaultChallengeState());
   assert.equal(p.rating, Elo.DEFAULT_RATING);
   assert.equal(p.rankedMatchesPlayed, 0);
+  assert.deepEqual(p.matchHistory, []);
+});
+
+check("recordMatchHistory prepends newest-first and caps at 10 entries", () => {
+  let p = Profile.createDefaultProfile("abc");
+  for (let i = 0; i < 12; i++) {
+    p = Profile.recordMatchHistory(p, { timestamp: i, result: "win", ranked: false, opponentCount: 1, ratingChange: null });
+  }
+  assert.equal(p.matchHistory.length, 10, "should cap at 10 entries, not grow forever");
+  assert.equal(p.matchHistory[0].timestamp, 11, "the most recent entry should be first");
+  assert.equal(p.matchHistory[9].timestamp, 2, "the oldest 2 entries (timestamps 0 and 1) should have fallen off the end");
 });
 
 check("awardCurrency adds to the balance without mutating the original profile", () => {

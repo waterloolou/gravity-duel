@@ -121,6 +121,28 @@ function buildChallengeRow(id, profile) {
 // Called whenever the Hangar is shown and whenever a fresh PROFILE_STATE
 // arrives while it's open, so purchases/equips/upgrades reflect immediately
 // without needing a page reload.
+function formatRelativeTime(timestamp) {
+  const mins = Math.floor((Date.now() - timestamp) / 60000);
+  if (mins < 1) return "just now";
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
+}
+
+function buildMatchHistoryRow(entry) {
+  const row = document.createElement("li");
+  row.className = `match-history-row ${entry.result}`;
+  const oppLabel = `${entry.opponentCount} opp${entry.opponentCount === 1 ? "" : "s"}`;
+  const ratingLabel = entry.ratingChange != null ? ` · ${entry.ratingChange >= 0 ? "+" : ""}${entry.ratingChange}` : "";
+  row.innerHTML = `
+    <span class="match-history-result">${entry.result === "win" ? "WIN" : "LOSS"}</span>
+    <span class="match-history-meta">${entry.ranked ? "Ranked" : "Casual"} · ${oppLabel}${ratingLabel}</span>
+    <span class="match-history-time">${formatRelativeTime(entry.timestamp)}</span>
+  `;
+  return row;
+}
+
 export function renderHangar(profile, net) {
   const errorEl = document.querySelector("[data-hangar-error]");
   const shipGrid = document.querySelector("[data-ship-grid]");
@@ -155,6 +177,17 @@ export function renderHangar(profile, net) {
     upgradeList.innerHTML = "";
     for (const [stat, tree] of Object.entries(Loadouts.UPGRADE_TREE)) {
       upgradeList.appendChild(buildUpgradeRow(stat, tree, profile, net, errorEl));
+    }
+  }
+
+  const matchHistoryList = document.querySelector("[data-match-history-list]");
+  if (matchHistoryList) {
+    matchHistoryList.innerHTML = "";
+    const history = profile.matchHistory ?? [];
+    if (history.length === 0) {
+      matchHistoryList.innerHTML = `<li class="match-history-empty">No matches played yet.</li>`;
+    } else {
+      for (const entry of history) matchHistoryList.appendChild(buildMatchHistoryRow(entry));
     }
   }
 }
