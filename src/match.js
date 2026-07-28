@@ -68,8 +68,14 @@ function createPickups() {
 // an optional { [playerId]: engineColorHex } map -- a player absent from
 // either (or the whole argument omitted, as every existing test and every
 // pre-loadout/pre-cosmetics call site does) gets createShip's own defaults,
-// so this stays fully backward compatible.
-export function createMatchState(playerIds = ["p1", "p2"], loadouts = {}, cosmetics = {}) {
+// so this stays fully backward compatible. `debris`/`nextDebrisId` default to
+// empty/1 for a brand-new room, but server.js's beginMatch() explicitly
+// carries the PREVIOUS match's leftover values through on a Rematch (same
+// room, fresh match) -- wreckage is the one piece of match state deliberately
+// NOT reset every match, since its whole point (see physics.js's
+// DEBRIS_RESPAWN_DELAY comment) is to persist on a much longer timescale
+// than a single match.
+export function createMatchState(playerIds = ["p1", "p2"], loadouts = {}, cosmetics = {}, debris = [], nextDebrisId = 1) {
   const spawnPositions = spawnPositionsFor(playerIds);
   const ships = {};
   for (const id of playerIds) {
@@ -84,6 +90,8 @@ export function createMatchState(playerIds = ["p1", "p2"], loadouts = {}, cosmet
     projectiles: [],
     nextProjectileId: 1,
     pickups: createPickups(),
+    debris,
+    nextDebrisId,
     winner: null,
   };
 }
@@ -210,9 +218,25 @@ export function stepMatch(state, inputs, dt, now) {
     pos: P.moonPosition(spec, simTime),
   }));
 
+  // 3b. Integrate debris. Reactivating BEFORE this tick's collision test
+  // (not after) mirrors readyPickups below -- a piece of debris that just
+  // came off its DEBRIS_RESPAWN_DELAY cooldown can be hit the instant it
+  // reappears rather than one tick late. Debris still on cooldown sits
+  // frozen at its own spawn point (no gravity applied) until then.
+  const readyDebris = state.debris.map((d) =>
+    !d.active && now >= d.respawnAt ? { ...d, active: true, respawnAt: null, pos: { ...d.spawnPos }, vel: { ...d.spawnVel } } : d
+  );
+  const debrisStates = readyDebris.map((d) => {
+    if (!d.active) return { ...d, prevPos: d.pos };
+    const prevPos = d.pos;
+    const stepped = P.integrateProjectile(d, dt, simTime, P.DEBRIS_MAX_SPEED);
+    return { ...d, prevPos, pos: stepped.pos, vel: stepped.vel };
+  });
+
   // 4. Detect (frozen snapshot: reads prevShipPos/movedShips/projStates only, never mutates).
   const deadShipIds = new Set();
   const hitProjectileIds = new Set();
+  const consumedDebrisIds = new Set();
   const events = [];
 
   for (const id of state.playerIds) {
@@ -247,6 +271,21 @@ export function stepMatch(state, inputs, dt, now) {
         diedThisTick = true;
       }
     }
+
+    if (!diedThisTick) {
+      for (const d of debrisStates) {
+        if (!d.active || consumedDebrisIds.has(d.id)) continue;
+        if (!P.sweptSphereHit(prevShipPos[id], ship.pos, P.SHIP_RADIUS, d.prevPos, d.pos, P.DEBRIS_RADIUS)) continue;
+        // Lethal like a moon, but consumed on impact like a projectile --
+        // no killer credited, same as well_death/moon_death (it's an
+        // environmental hazard, not something another player aimed).
+        consumedDebrisIds.add(d.id);
+        deadShipIds.add(id);
+        events.push({ event: "debris_death", victimId: id });
+        diedThisTick = true;
+        break;
+      }
+    }
   }
 
   for (const proj of projStates) {
@@ -261,6 +300,23 @@ export function stepMatch(state, inputs, dt, now) {
         break;
       }
     }
+  }
+
+  // Debris that isn't done in by a ship this tick can still be spent by
+  // falling into the well, hitting a moon, or drifting out of the arena --
+  // same fate (consumed, same DEBRIS_RESPAWN_DELAY cooldown below) a
+  // ship-kill would give it, just with no victim.
+  for (const d of debrisStates) {
+    if (!d.active || consumedDebrisIds.has(d.id)) continue;
+    if (P.sweptSphereHit(d.prevPos, d.pos, P.DEBRIS_RADIUS, P.WELL_POS, P.WELL_POS, P.WELL_RADIUS)) {
+      consumedDebrisIds.add(d.id);
+      continue;
+    }
+    if (moonSweeps.some(({ spec, prevPos: moonPrevPos, pos: moonPos }) => P.sweptSphereHit(d.prevPos, d.pos, P.DEBRIS_RADIUS, moonPrevPos, moonPos, spec.radius))) {
+      consumedDebrisIds.add(d.id);
+      continue;
+    }
+    if (P.vLen(d.pos) > P.ARENA_RADIUS) consumedDebrisIds.add(d.id);
   }
 
   // 4b. Pickups. Reactivate anything whose cooldown has elapsed BEFORE
@@ -282,6 +338,46 @@ export function stepMatch(state, inputs, dt, now) {
     }
   }
   const resolvedPickups = readyPickups.map((p) => (collectedPickupIds.has(p.id) ? { ...p, active: false, respawnAt: now + P.PICKUP_RESPAWN_DELAY } : p));
+
+  // 4c. Debris resolve: consumed pieces (from the detection above) go
+  // inactive on their own long cooldown; everything else just sheds the
+  // prevPos scratch field integration added. Then, every ship death THIS
+  // tick (any cause -- well, moon, projectile, or another piece of debris)
+  // leaves fresh wreckage exactly where it died, inheriting its velocity at
+  // that instant so it drifts onward under its own momentum. Reads
+  // movedShips (pre-respawn position/velocity), not resolvedShips, since
+  // that's computed below.
+  const resolvedDebrisSoFar = debrisStates.map(({ prevPos, ...d }) =>
+    consumedDebrisIds.has(d.id) ? { ...d, active: false, respawnAt: now + P.DEBRIS_RESPAWN_DELAY } : d
+  );
+  let nextDebrisId = state.nextDebrisId;
+  let resolvedDebris = resolvedDebrisSoFar;
+  for (const e of events) {
+    if (e.event !== "hit" && e.event !== "well_death" && e.event !== "moon_death" && e.event !== "debris_death") continue;
+    const victim = movedShips[e.victimId];
+    const fresh = {
+      id: nextDebrisId++,
+      spawnPos: { ...victim.pos },
+      spawnVel: { ...victim.vel },
+      pos: { ...victim.pos },
+      vel: { ...victim.vel },
+      active: true,
+      respawnAt: null,
+    };
+    if (resolvedDebris.length < P.MAX_DEBRIS) {
+      resolvedDebris = [...resolvedDebris, fresh];
+    } else {
+      // At the cap: the newest death bumps out whichever piece has existed
+      // longest (lowest id), active or not -- keeps the total bounded
+      // indefinitely across a long-lived room's many rematches, rather than
+      // growing forever.
+      let oldestIdx = 0;
+      for (let i = 1; i < resolvedDebris.length; i++) {
+        if (resolvedDebris[i].id < resolvedDebris[oldestIdx].id) oldestIdx = i;
+      }
+      resolvedDebris = resolvedDebris.map((d, i) => (i === oldestIdx ? fresh : d));
+    }
+  }
 
   // 5. Resolve.
   const resolvedShips = {};
@@ -340,6 +436,8 @@ export function stepMatch(state, inputs, dt, now) {
       projectiles: survivingProjectiles,
       nextProjectileId,
       pickups: resolvedPickups,
+      debris: resolvedDebris,
+      nextDebrisId,
       winner,
     },
     events,

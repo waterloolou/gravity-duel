@@ -61,7 +61,9 @@ function interpolateState(a, b, t) {
   // Pickups are fixed-position and only ever toggle active/inactive on a
   // multi-second cooldown -- snapping to `b`'s array wholesale is exactly
   // right, there's nothing meaningful to interpolate between two ticks.
-  return { tick: b.tick, playerIds: b.playerIds, ships, projectiles: b.projectiles, pickups: b.pickups, winner: b.winner };
+  // Debris, like projectiles, is transient and moves under the same
+  // gravity -- raw positions from `b`, no interpolation, same reasoning.
+  return { tick: b.tick, playerIds: b.playerIds, ships, projectiles: b.projectiles, pickups: b.pickups, debris: b.debris, winner: b.winner };
 }
 
 export function createNetClient(url) {

@@ -295,7 +295,13 @@ function beginMatch(code) {
     loadouts[id] = resolveLoadoutForSeat(entry, id);
     cosmetics[id] = resolveCosmeticForSeat(entry, id);
   }
-  entry.matchState = M.createMatchState(activeIds, loadouts, cosmetics);
+  // Wreckage (unlike ships/projectiles/pickups) survives a Rematch in this
+  // same room -- see match.js's own comment on createMatchState's
+  // debris/nextDebrisId params for why. entry.matchState still holds the
+  // PREVIOUS match's state here, right up until the reassignment below.
+  const carryOverDebris = entry.matchState?.debris ?? [];
+  const carryOverNextDebrisId = entry.matchState?.nextDebrisId ?? 1;
+  entry.matchState = M.createMatchState(activeIds, loadouts, cosmetics, carryOverDebris, carryOverNextDebrisId);
   entry.inputs = {};
   for (const id of activeIds) entry.inputs[id] = neutralInput(entry.matchState.ships[id]);
   entry.deathsThisMatch = {}; // per-seat death count, reset per match -- feeds the "win without dying" daily challenge (see startTickLoop's match_over handling)
@@ -355,6 +361,11 @@ function serializeMatchState(state, now) {
     // client can render a dimmed marker instead of nothing -- players learn
     // the map faster if a cooling-down pickup still shows what/where it is.
     pickups: state.pickups.map((p) => ({ id: p.id, type: p.type, pos: [p.pos.x, p.pos.y, p.pos.z], active: p.active })),
+    // Unlike pickups, inactive debris is dropped entirely rather than sent
+    // dimmed -- its position is meaningless while on cooldown (frozen at a
+    // now-ancient death site, on a DEBRIS_RESPAWN_DELAY measured in minutes,
+    // not seconds), so there's nothing worth learning the map by seeing it.
+    debris: state.debris.filter((d) => d.active).map((d) => ({ id: d.id, pos: [d.pos.x, d.pos.y, d.pos.z], vel: [d.vel.x, d.vel.y, d.vel.z] })),
     winner: state.winner,
   };
 }
@@ -394,7 +405,7 @@ function startTickLoop(code) {
       entry.matchState = state;
       for (const ev of events) {
         broadcastToRoom(entry, MSG.MATCH_EVENT, ev);
-        if (ev.event === "hit" || ev.event === "well_death" || ev.event === "moon_death") {
+        if (ev.event === "hit" || ev.event === "well_death" || ev.event === "moon_death" || ev.event === "debris_death") {
           updateProfileForSeat(entry, ev.victimId, (id) => ProfileStore.addStats(id, { deaths: 1 }));
           entry.deathsThisMatch[ev.victimId] = (entry.deathsThisMatch[ev.victimId] ?? 0) + 1;
         }

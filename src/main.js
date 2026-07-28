@@ -331,6 +331,9 @@ function buildKillFeedMessage(ev) {
   if (ev.event === "moon_death") {
     return isSelfVictim ? "You crashed into a moon." : `${victim} crashed into a moon.`;
   }
+  if (ev.event === "debris_death") {
+    return isSelfVictim ? "You were struck by drifting debris." : `${victim} was struck by drifting debris.`;
+  }
   if (isSelfVictim) return "You were eliminated.";
   if (ev.killerId === selfId) return `You eliminated ${victim}!`;
   return `${playerLabel(ev.killerId)} eliminated ${victim}.`;
@@ -711,7 +714,7 @@ const KILLCAM_DURATION_MS = 2000;
 const killcamBadgeEl = document.querySelector("[data-killcam-badge]");
 
 net.on(MSG.MATCH_EVENT, (msg) => {
-  if (msg.event === "hit" || msg.event === "well_death" || msg.event === "moon_death") {
+  if (msg.event === "hit" || msg.event === "well_death" || msg.event === "moon_death" || msg.event === "debris_death") {
     const isSelfVictim = msg.victimId === selfId;
     audioSystem.explosion();
     pushKillFeed(buildKillFeedMessage(msg));
@@ -1059,6 +1062,7 @@ function startGameLoop() {
       renderer.updateProjectiles(snap.projectiles, renderId, () => audioSystem.fire());
       renderer.updateMoons(snap.tick);
       renderer.updatePickups(snap.pickups);
+      renderer.updateDebris(snap.debris);
       minimap?.draw(snap, renderId);
       // Killcam keeps the HUD ("You", heat/shield/boost) anchored to the
       // real local player even though the camera/self-ship-model is

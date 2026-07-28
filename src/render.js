@@ -23,6 +23,8 @@ const DEFAULT_ENEMY_COLOR = 0xff3d5a;
 const COLORBLIND_ENEMY_COLOR = 0xff8c1a;
 const WELL_COLOR = 0xffb454;
 const PICKUP_COLORS = { speed: 0xffe066, shield: 0x4fd1ff, vent: 0xff7a3d };
+const DEBRIS_COLOR = 0x716c60;
+const DEBRIS_GLOW_COLOR = 0xff5a3d; // a faint hot-metal rim, so it reads as a hazard, not just inert rock
 
 function makeCanvasTexture(size, draw) {
   const canvas = document.createElement("canvas");
@@ -215,6 +217,36 @@ function buildPickupMeshes() {
     entries[spec.id] = { mesh, mat };
   }
   return entries;
+}
+
+// A jagged chunk of wreckage: a low-poly icosahedron with each vertex
+// nudged by a random amount so it reads as busted debris rather than a
+// clean gem, wrapped in a faint additive glow shell (same "hazard, not
+// scenery" cue pickups get from their own glow) -- computed once and shared
+// by every piece of debris (like buildBoltGeometries below), never per
+// instance, since createDebrisVisual only ever builds meshes that reference
+// these same shared geometry/material objects.
+function buildDebrisGeometry() {
+  const geo = new THREE.IcosahedronGeometry(P.DEBRIS_RADIUS, 0);
+  const posAttr = geo.attributes.position;
+  for (let i = 0; i < posAttr.count; i++) {
+    const scale = 0.75 + Math.random() * 0.5;
+    posAttr.setXYZ(i, posAttr.getX(i) * scale, posAttr.getY(i) * scale, posAttr.getZ(i) * scale);
+  }
+  geo.computeVertexNormals();
+  return geo;
+}
+
+function createDebrisVisual(coreGeo, glowGeo, coreMat, glowMat) {
+  const group = new THREE.Group();
+  group.add(new THREE.Mesh(coreGeo, coreMat), new THREE.Mesh(glowGeo, glowMat));
+  // Each piece tumbles around its own fixed random axis, at its own fixed
+  // random rate -- picked once at creation and held for the piece's whole
+  // visible lifetime, not re-rolled every frame, so the tumble reads as
+  // continuous motion rather than a jitter.
+  group.userData.spinAxis = new THREE.Vector3(Math.random() - 0.5, Math.random() - 0.5, Math.random() - 0.5).normalize();
+  group.userData.spinSpeed = 0.6 + Math.random() * 1.2;
+  return group;
 }
 
 // A "blaster bolt" built from three parts sharing the same lookAt-safe
@@ -470,6 +502,43 @@ export function createRenderer(canvas, selfEngineColor = 0xffffff, colorblindMod
   const ownBoltMats = createBoltMaterials(OWN_COLOR);
   const enemyBoltMats = createBoltMaterials(ENEMY_COLOR);
   const projectileMeshes = new Map();
+
+  // Debris: wreckage left behind by every ship death (see physics.js's
+  // DEBRIS_RADIUS/match.js's stepMatch) -- same create-on-sight/dispose-on-
+  // absence lifecycle as projectileMeshes above, one tumbling chunk per live
+  // debris id. Geometry/materials are shared across every instance (see
+  // buildDebrisGeometry/createDebrisVisual's own comments), so removal never
+  // needs to dispose anything, same as projectileMeshes.
+  const debrisCoreGeo = buildDebrisGeometry();
+  const debrisGlowGeo = new THREE.IcosahedronGeometry(P.DEBRIS_RADIUS * 1.4, 0);
+  const debrisCoreMat = new THREE.MeshBasicMaterial({ color: DEBRIS_COLOR });
+  const debrisGlowMat = new THREE.MeshBasicMaterial({
+    color: DEBRIS_GLOW_COLOR,
+    transparent: true,
+    opacity: 0.22,
+    blending: THREE.AdditiveBlending,
+    depthWrite: false,
+  });
+  const debrisMeshes = new Map();
+
+  function updateDebris(debris) {
+    const seen = new Set();
+    for (const d of debris ?? []) {
+      seen.add(d.id);
+      let visual = debrisMeshes.get(d.id);
+      if (!visual) {
+        visual = createDebrisVisual(debrisCoreGeo, debrisGlowGeo, debrisCoreMat, debrisGlowMat);
+        scene.add(visual);
+        debrisMeshes.set(d.id, visual);
+      }
+      visual.position.set(d.pos[0], d.pos[1], d.pos[2]);
+    }
+    for (const [id, visual] of debrisMeshes) {
+      if (seen.has(id)) continue;
+      scene.remove(visual);
+      debrisMeshes.delete(id);
+    }
+  }
 
   // Trajectory preview: a dashed ghost line showing where the LOCAL ship
   // would drift under current input, forward-simulated client-side with the
@@ -733,6 +802,10 @@ export function createRenderer(canvas, selfEngineColor = 0xffffff, colorblindMod
       entry.mat.opacity = p.active ? 0.85 : 0.15;
     }
 
+    for (const visual of debrisMeshes.values()) {
+      visual.rotateOnAxis(visual.userData.spinAxis, visual.userData.spinSpeed * dt);
+    }
+
     updateMuzzleFlashes(dt);
     updateExplosions(dt);
 
@@ -764,6 +837,7 @@ export function createRenderer(canvas, selfEngineColor = 0xffffff, colorblindMod
     updateTrajectoryPreview,
     updateMoons,
     updatePickups,
+    updateDebris,
     spawnExplosion,
     triggerShake,
     setLocalThrust,

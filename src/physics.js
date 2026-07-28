@@ -87,6 +87,25 @@ export const PICKUP_SPEED_BOOST_DURATION = 5; // seconds
 export const PICKUP_SPEED_BOOST_MULT = 1.6; // multiplies thrustAccel AND maxSpeed while active
 export const PICKUP_SHIELD_DURATION = 4; // seconds of bonus invulnerability (extends the ship's existing invulnerableUntil)
 
+// Wreckage left behind by every ship death: drifts under the same gravity as
+// a projectile (see match.js's stepMatch), and is just as lethal to any ship
+// that touches it -- but unlike a moon/the well, it's a one-shot hazard,
+// consumed on impact same as a projectile would be. DEBRIS_MAX_SPEED is
+// capped lower than a projectile's own (900) since it's momentum-carried
+// wreckage, not weapon-propelled. Consumed debris (by killing a ship, falling
+// into the well/a moon, or drifting out of the arena) goes on a long
+// DEBRIS_RESPAWN_DELAY cooldown rather than disappearing outright -- 10
+// minutes is far longer than a typical match, so this is really about
+// letting a long-lived room's battlefield gradually clear itself between
+// rematches, not something a single match is expected to see recur.
+// MAX_DEBRIS caps the total live+cooldown count so an arena being rematched
+// in for hours doesn't accumulate wreckage forever -- past the cap, a new
+// death bumps out whichever piece has existed longest (see match.js).
+export const DEBRIS_RADIUS = 6;
+export const DEBRIS_MAX_SPEED = 450;
+export const DEBRIS_RESPAWN_DELAY = 600; // 10 minutes
+export const MAX_DEBRIS = 8;
+
 // Placed at radius 130 from the well: well outside WELL_RADIUS (40, so no
 // risk of overlapping the kill sphere) but comfortably inside the nearest
 // moon's orbit (moonA at a constant 190 from the well, see moonPosition's

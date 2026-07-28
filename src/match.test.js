@@ -397,6 +397,128 @@ check("a collected pickup stays uncollectable through its cooldown, then reactiv
   assert.equal(reactivated.pickups.find((p) => p.id === spec.id).active, false, "should be back on cooldown immediately after being re-collected");
 });
 
+check("createMatchState seeds no debris by default, but accepts carried-over debris/nextDebrisId for a rematch", () => {
+  const fresh = M.createMatchState();
+  assert.deepEqual(fresh.debris, []);
+  assert.equal(fresh.nextDebrisId, 1);
+
+  const leftover = [{ id: 5, spawnPos: { x: 1, y: 0, z: 0 }, spawnVel: { x: 0, y: 0, z: 0 }, pos: { x: 1, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, active: true, respawnAt: null }];
+  const carried = M.createMatchState(["p1", "p2"], {}, {}, leftover, 6);
+  assert.deepEqual(carried.debris, leftover);
+  assert.equal(carried.nextDebrisId, 6, "a rematch should keep issuing fresh ids after wherever the previous match left off");
+});
+
+check("a ship death leaves debris behind exactly where it died, inheriting its velocity at that instant", () => {
+  let state = M.createMatchState();
+  state.ships.p1 = { ...state.ships.p1, pos: { x: 150, y: 0, z: 0 }, vel: { x: 12, y: 0, z: -4 } };
+  state.projectiles.push({ id: 1, ownerId: "p2", pos: { x: 150, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 });
+  // stepMatch integrates the victim's own movement (gravity + drag) before
+  // detecting the hit, so the death location isn't exactly the pre-tick
+  // position -- reproduce that same one-tick integration here rather than
+  // hand-approximating the drift.
+  const expectedMoved = P.integrateShip(state.ships.p1, P.TICK_DT, NO_INPUT, 0, state.ships.p1.stats);
+  const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
+  assert.equal(next.debris.length, 1, "exactly one fresh piece of debris should appear");
+  const d = next.debris[0];
+  assert.deepEqual(d.pos, expectedMoved.pos, "debris should spawn exactly at the ship's actual death position");
+  assert.deepEqual(d.vel, expectedMoved.vel, "debris should inherit the ship's exact velocity at the moment of death");
+  assert.deepEqual(d.spawnPos, d.pos, "spawnPos should record this same death location, for its own eventual respawn");
+  assert.equal(d.active, true);
+  assert.equal(d.respawnAt, null);
+});
+
+check("debris is lethal to any ship it touches, credits no kill to anyone, and is itself consumed", () => {
+  let state = M.createMatchState(["p1", "p2", "p3"]);
+  state.ships.p3 = { ...state.ships.p3, pos: { x: 300, y: 0, z: 0 } };
+  state.debris.push({ id: 9, spawnPos: { x: 300, y: 0, z: 0 }, spawnVel: { x: 0, y: 0, z: 0 }, pos: { x: 300, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, active: true, respawnAt: null });
+  const now = 3;
+  const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT, p3: NO_INPUT }, P.TICK_DT, now);
+  assert.deepEqual(next.ships.p3.pos, state.ships.p3.spawnPos, "the victim should have respawned");
+  assert.equal(next.ships.p1.kills, 0);
+  assert.equal(next.ships.p2.kills, 0);
+  assert.ok(events.some((e) => e.event === "debris_death" && e.victimId === "p3"), "a debris_death event should fire");
+  const consumed = next.debris.find((d) => d.id === 9);
+  assert.equal(consumed.active, false, "the debris that scored the kill should be consumed");
+  assert.equal(consumed.respawnAt, now + P.DEBRIS_RESPAWN_DELAY);
+});
+
+check("an invulnerable ship is immune to debris, same as every other hazard", () => {
+  let state = M.createMatchState();
+  state.ships.p1 = { ...state.ships.p1, pos: { x: 300, y: 0, z: 0 }, invulnerableUntil: 100 };
+  state.debris.push({ id: 1, spawnPos: { x: 300, y: 0, z: 0 }, spawnVel: { x: 0, y: 0, z: 0 }, pos: { x: 300, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, active: true, respawnAt: null });
+  const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
+  assert.equal(next.ships.p1.invulnerableUntil, 100, "p1 should not have respawned (i.e. not have died)");
+  assert.equal(next.debris.find((d) => d.id === 1).active, true, "debris that didn't land a hit should remain active");
+});
+
+check("debris that falls into the well or a moon is consumed with no victim, same cooldown as a kill", () => {
+  let state = M.createMatchState();
+  state.debris.push({ id: 1, spawnPos: { x: 0, y: 0, z: 0 }, spawnVel: { x: 0, y: 0, z: 0 }, pos: { x: 0, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, active: true, respawnAt: null });
+  const now = 7;
+  const { state: next, events } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, now);
+  const consumed = next.debris.find((d) => d.id === 1);
+  assert.equal(consumed.active, false, "debris that fell into the well should be consumed");
+  assert.equal(consumed.respawnAt, now + P.DEBRIS_RESPAWN_DELAY);
+  assert.ok(!events.some((e) => e.event === "debris_death"), "no ship was involved, so no debris_death event should fire");
+});
+
+check("a consumed piece of debris stays inert through its cooldown, then reappears exactly at its original spawn point", () => {
+  let state = M.createMatchState(["p1", "p2", "p3"]);
+  state.ships.p3 = { ...state.ships.p3, pos: { x: 300, y: 0, z: 0 } };
+  state.debris.push({ id: 1, spawnPos: { x: 300, y: 0, z: 0 }, spawnVel: { x: 5, y: 0, z: 0 }, pos: { x: 300, y: 0, z: 0 }, vel: { x: 5, y: 0, z: 0 }, active: true, respawnAt: null });
+  // The death this test triggers spawns its OWN fresh debris (see the next
+  // test up above) -- bump nextDebrisId past the manually-pushed id above so
+  // that new entry can't collide with the one this test is tracking.
+  state.nextDebrisId = 2;
+  const now = 10;
+  let { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT, p3: NO_INPUT }, P.TICK_DT, now);
+  const respawnAt = next.debris.find((d) => d.id === 1).respawnAt;
+  // That death spawned its own fresh (active) debris right where p3 died,
+  // same as the earlier test covers -- drop it so the rest of this test can
+  // isolate just piece id=1's own cooldown/reactivation behavior.
+  next.debris = next.debris.filter((d) => d.id === 1);
+
+  // Still on cooldown a tick later: even a ship sitting right on top of the
+  // (frozen, inactive) debris should be untouched.
+  next.ships.p3 = { ...next.ships.p3, pos: { x: 300, y: 0, z: 0 }, invulnerableUntil: 0 };
+  const { state: stillCooling } = M.stepMatch(next, { p1: NO_INPUT, p2: NO_INPUT, p3: NO_INPUT }, P.TICK_DT, now + P.TICK_DT);
+  // Not an exact (300,0,0) match -- a ship drifts a little under gravity
+  // every tick regardless of whether it died. Approximately still there
+  // (rather than teleported all the way back to its far-off spawnPos) is
+  // what actually proves it didn't die to the still-cooling debris.
+  approx(stillCooling.ships.p3.pos.x, 300, 1, "should not have died to debris that's still on cooldown");
+
+  // Once respawnAt has passed, it reactivates at its ORIGINAL spawn point
+  // (not wherever it happened to drift to before being consumed).
+  stillCooling.ships.p3 = { ...stillCooling.ships.p3, pos: { x: 300, y: 0, z: 0 }, invulnerableUntil: 0 };
+  const { state: reactivated } = M.stepMatch(stillCooling, { p1: NO_INPUT, p2: NO_INPUT, p3: NO_INPUT }, P.TICK_DT, respawnAt);
+  assert.deepEqual(reactivated.ships.p3.pos, reactivated.ships.p3.spawnPos, "the ship should have died again, now that the debris is back");
+  assert.equal(reactivated.debris.find((d) => d.id === 1).active, false, "should be back on cooldown immediately after being re-consumed");
+});
+
+check("total debris is capped at MAX_DEBRIS -- a new death bumps out whichever piece has existed longest", () => {
+  let state = M.createMatchState();
+  state.debris = Array.from({ length: P.MAX_DEBRIS }, (_, i) => ({
+    id: i + 1,
+    spawnPos: { x: 250 + i, y: 0, z: 0 },
+    spawnVel: { x: 0, y: 0, z: 0 },
+    pos: { x: 250 + i, y: 0, z: 0 },
+    vel: { x: 0, y: 0, z: 0 },
+    active: false,
+    respawnAt: 99999, // deep in its cooldown, irrelevant to this test either way
+  }));
+  state.nextDebrisId = P.MAX_DEBRIS + 1;
+  state.ships.p1 = { ...state.ships.p1, pos: { x: 150, y: 0, z: 0 } };
+  state.projectiles.push({ id: 1, ownerId: "p2", pos: { x: 150, y: 0, z: 0 }, vel: { x: 0, y: 0, z: 0 }, spawnTime: 0 });
+  const { state: next } = M.stepMatch(state, { p1: NO_INPUT, p2: NO_INPUT }, P.TICK_DT, 1);
+  assert.equal(next.debris.length, P.MAX_DEBRIS, "the total count should never exceed the cap");
+  assert.equal(next.debris.find((d) => d.id === 1), undefined, "the oldest (lowest-id) piece should have been bumped out");
+  assert.ok(next.debris.some((d) => d.id === P.MAX_DEBRIS + 1), "the fresh death should still show up, reusing the freed slot");
+  for (let i = 2; i <= P.MAX_DEBRIS; i++) {
+    assert.ok(next.debris.some((d) => d.id === i), `piece ${i} should have been left untouched`);
+  }
+});
+
 check("stepMatch is a no-op once a winner is set", () => {
   let state = M.createMatchState();
   state.winner = "p1";

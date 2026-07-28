@@ -11,10 +11,12 @@ const SHIP_DOT_RADIUS = 3;
 const WELL_DOT_RADIUS = 4;
 const MOON_DOT_RADIUS = 2.5;
 const PICKUP_DOT_RADIUS = 2;
+const DEBRIS_DOT_RADIUS = 2.5;
 const OWN_COLOR = "#5be8ff";
 const ENEMY_COLOR = "#ff3d5a";
 const MOON_COLOR = "#9c9aa8";
 const WELL_COLOR = "#ffb454";
+const DEBRIS_COLOR = "#ff5a3d"; // mirrors render.js's own DEBRIS_GLOW_COLOR
 // Mirrors render.js's own PICKUP_COLORS -- kept as a separate small copy
 // rather than imported, same reasoning as main.js's own PICKUP_EVENT_COLORS:
 // render.js doesn't export its internal palette, and this is the only
@@ -64,6 +66,10 @@ export function createMinimap(canvas) {
     for (const p of snap.pickups ?? []) {
       if (!p.active) continue; // a pickup on cooldown isn't there to route toward
       dot(p.pos, PICKUP_DOT_RADIUS, PICKUP_COLORS[p.type] ?? "#ffffff");
+    }
+
+    for (const d of snap.debris ?? []) {
+      dot(d.pos, DEBRIS_DOT_RADIUS, DEBRIS_COLOR);
     }
 
     for (const [id, ship] of Object.entries(snap.ships ?? {})) {
