@@ -38,6 +38,11 @@ jobs:
           cp -r icons _site/
           find src -maxdepth 1 -name '*.js' ! -name '*.test.js' ! -name 'profile-store.js' -exec cp {} _site/src/ \;
           touch _site/.nojekyll
+          # Keep the custom domain set in Settings -> Pages (GitHub stores it
+          # as a CNAME file on gh-pages; a fresh publish would otherwise drop it).
+          if git fetch -q --depth 1 origin gh-pages 2>/dev/null && git cat-file -e FETCH_HEAD:CNAME 2>/dev/null; then
+            git show FETCH_HEAD:CNAME > _site/CNAME
+          fi
 
       - name: Publish to gh-pages
         run: |
