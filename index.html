@@ -9,9 +9,9 @@
   <!-- Installable as a home-screen app (Add to Home Screen / Install) --
        manifest.json + icons cover Android/Chrome, the apple-* tags below
        cover iOS Safari, which doesn't read the manifest for this. -->
-  <link rel="manifest" href="/manifest.json" />
+  <link rel="manifest" href="manifest.json" />
   <meta name="theme-color" content="#05050f" />
-  <link rel="apple-touch-icon" href="/icons/icon-512.png" />
+  <link rel="apple-touch-icon" href="icons/icon-512.png" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
   <meta name="apple-mobile-web-app-title" content="Gravity Duel" />
@@ -108,6 +108,7 @@
       <button type="button" class="primary" data-ready-btn>Ready</button>
       <p class="status-text" data-lobby-status></p>
       <p class="lobby-hint">Starts once everyone here is ready — 2 to 4 players.</p>
+      <p class="status-text" data-p2p-status></p>
       <div class="countdown-number" data-countdown hidden></div>
       <div class="lobby-actions">
         <button type="button" class="secondary" data-copy-invite>Copy Invite Link</button>
@@ -131,7 +132,7 @@
 
     <section id="view-hangar" class="view panel hangar-panel" hidden>
       <h2>Hangar</h2>
-      <p class="hangar-hint">Ships and weapons are lateral choices, not power -- pick a playstyle. Progress is tied to this browser and won't survive a server redeploy yet.</p>
+      <p class="hangar-hint">Ships and weapons are lateral choices, not power -- pick a playstyle. Progress is saved in this browser.</p>
       <div class="hangar-section">
         <h3>Daily Challenges</h3>
         <p class="hangar-hint">Same 3 for everyone, reset at 00:00 UTC. Credits pay out automatically the instant you complete one.</p>
@@ -179,6 +180,7 @@
         <input type="text" maxlength="16" placeholder="Your callsign" data-callsign-input autocomplete="off" />
         <button type="button" class="secondary" data-save-callsign>Save</button>
       </div>
+      <p class="hangar-hint">Pilots you've played with in this browser.</p>
       <p class="error-text" data-leaderboard-error></p>
       <p class="leaderboard-self" data-leaderboard-self></p>
       <ol class="leaderboard-list" data-leaderboard-list></ol>
@@ -238,6 +240,8 @@
     </section>
   </div>
 
+  <!-- PeerJS: browser-to-browser connections so players can host matches for each other (see src/p2p.js) -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
   <script type="module" src="src/main.js"></script>
 </body>
 </html>

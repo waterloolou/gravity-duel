@@ -66,6 +66,8 @@ function interpolateState(a, b, t) {
   return { tick: b.tick, playerIds: b.playerIds, ships, projectiles: b.projectiles, pickups: b.pickups, debris: b.debris, winner: b.winner };
 }
 
+// `url` is a WebSocket URL (dedicated server) or a function returning a
+// WebSocket-shaped object (the peer-to-peer transport in p2p.js).
 export function createNetClient(url) {
   const listeners = new Map();
   const snapshots = [];
@@ -82,7 +84,7 @@ export function createNetClient(url) {
   let ws = null;
 
   function connect() {
-    ws = new WebSocket(url);
+    ws = typeof url === "function" ? url() : new WebSocket(url);
     ws.addEventListener("open", () => emit("_open", {}));
     ws.addEventListener("close", () => emit("_close", {}));
     ws.addEventListener("message", (event) => {
@@ -102,7 +104,7 @@ export function createNetClient(url) {
   }
 
   function send(type, payload = {}) {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type, ...payload }));
+    if (ws && ws.readyState === 1 /* WebSocket.OPEN */) ws.send(JSON.stringify({ type, ...payload }));
   }
 
   // Finds the two buffered snapshots bracketing `renderTime` and returns a

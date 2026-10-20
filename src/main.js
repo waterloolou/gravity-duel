@@ -2,6 +2,7 @@ import { MSG } from "../protocol.js";
 import * as P from "./physics.js";
 import { PINGS, PING_COOLDOWN_MS } from "./pings.js";
 import { createNetClient, INTERPOLATION_DELAY_MS } from "./net.js";
+import { createP2PTransport, P2P_STATUS } from "./p2p.js";
 import { createInputController } from "./input.js";
 import { createRenderer } from "./render.js";
 import { createAudioSystem, setMasterVolume, setMuted } from "./audio.js";
@@ -16,10 +17,15 @@ import { createMinimap } from "./minimap.js";
 // -- see sw.js's own comment for why this game specifically shouldn't try
 // to cache/serve itself offline.
 if ("serviceWorker" in navigator) {
-  window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+  window.addEventListener("load", () => navigator.serviceWorker.register("sw.js").catch(() => {}));
 }
 
-const net = createNetClient(`ws://${location.host}/ws`);
+// Default: peer-to-peer (players host matches for each other; works from a
+// static site like GitHub Pages). ?server=1 uses the optional Node server.
+const useDedicatedServer = new URLSearchParams(location.search).has("server");
+const net = createNetClient(
+  useDedicatedServer ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws` : createP2PTransport
+);
 const audioSystem = createAudioSystem();
 
 // Applied immediately, before any match/audio-context exists -- both
@@ -47,7 +53,9 @@ let spectateTargetId = null; // which player's ship the spectator camera is curr
 // retry or fall back from, instead of just an error with no context.
 const inviteCode = new URLSearchParams(location.search).get("room");
 if (inviteCode) {
-  history.replaceState(null, "", location.pathname);
+  const keep = new URLSearchParams(location.search);
+  keep.delete("room"); // keep ?server=1 etc., drop only the one-shot invite
+  history.replaceState(null, "", location.pathname + (keep.toString() ? `?${keep}` : ""));
 }
 
 // No accounts -- this id is just "which save file to load" for currency and
@@ -228,6 +236,12 @@ net.on(MSG.LEADERBOARD_STATE, (msg) => {
 
 const hud = document.getElementById("hud");
 const homeError = document.querySelector("[data-home-error]");
+// Peer-to-peer matchmaking progress ("Looking for an open match…") from p2p.js.
+const p2pStatusEl = document.querySelector("[data-p2p-status]");
+net.on(P2P_STATUS, (msg) => {
+  homeError.textContent = msg.text;
+  if (p2pStatusEl) p2pStatusEl.textContent = msg.text;
+});
 const roomCodeEl = document.querySelector("[data-room-code]");
 const playerListEl = document.querySelector("[data-player-list]");
 const lobbyStatusEl = document.querySelector("[data-lobby-status]");

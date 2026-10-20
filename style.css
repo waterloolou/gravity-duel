@@ -434,7 +434,7 @@ button.secondary:disabled {
 }
 
 .ranked-badge {
-  display: inline-block;
+  display: inline-block; /* hidden attribute handled below */
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.1em;
@@ -1604,4 +1604,10 @@ button.secondary:disabled {
   font-size: 0.8rem;
   color: rgba(255, 255, 255, 0.55);
   margin: 4px 0 0;
+}
+
+/* Same fix as .match-over-banner: a class-level display overrides the
+   browser's [hidden] rule, so casual rooms were showing the RANKED badge. */
+.ranked-badge[hidden] {
+  display: none;
 }
