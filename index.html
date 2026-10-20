@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gravity Duel — a real-time gravity-combat duel</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><circle cx=%2250%22 cy=%2250%22 r=%2222%22 fill=%22%23ff8833%22/><circle cx=%2250%22 cy=%2250%22 r=%2240%22 fill=%22none%22 stroke=%22%2366ccff%22 stroke-width=%224%22/></svg>" />
+
+  <!-- Installable as a home-screen app (Add to Home Screen / Install) --
+       manifest.json + icons cover Android/Chrome, the apple-* tags below
+       cover iOS Safari, which doesn't read the manifest for this. -->
+  <link rel="manifest" href="manifest.json" />
+  <meta name="theme-color" content="#05050f" />
+  <link rel="apple-touch-icon" href="icons/icon-512.png" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Gravity Duel" />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@700;800;900&family=Share+Tech+Mono&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header class="app-header">
+      <button type="button" class="settings-gear-btn" data-open-settings aria-label="Settings">⚙</button>
+      <h1>Gravity Duel</h1>
+      <p class="tagline">Your shots curve under real gravity. Aim around the well, or through it.</p>
+      <div class="currency-badge" data-currency-badge hidden>
+        <span class="currency-value" data-currency>0</span>
+        <span class="currency-label">credits</span>
+      </div>
+    </header>
+
+    <section id="view-home" class="view panel">
+      <h2>Play online</h2>
+      <div class="play-row">
+        <button type="button" class="play-card" data-quick-play>
+          <span class="play-card-title">Quick Play</span>
+          <span class="play-card-hint">Casual free-for-all — matched instantly.</span>
+        </button>
+        <button type="button" class="play-card ranked" data-ranked-play>
+          <span class="play-card-title">Ranked</span>
+          <span class="play-card-hint">Elo on the line — no bots, own leaderboard.</span>
+        </button>
+      </div>
+      <div class="home-secondary-row">
+        <button type="button" class="secondary" data-open-hangar>Hangar</button>
+        <button type="button" class="secondary" data-open-leaderboard>Leaderboard</button>
+      </div>
+      <details class="private-room">
+        <summary>Play with a friend instead</summary>
+        <button type="button" class="secondary" data-create-room>Create room</button>
+        <div class="join-row">
+          <input type="text" maxlength="4" placeholder="CODE" data-join-code-input autocomplete="off" />
+          <button type="button" class="secondary" data-join-room>Join room</button>
+        </div>
+        <button type="button" class="secondary" data-browse-rooms>Browse Open Rooms</button>
+        <ul class="room-browser-list" data-room-browser-list hidden></ul>
+      </details>
+      <p class="error-text" data-home-error></p>
+    </section>
+
+    <section id="view-settings" class="view panel" hidden>
+      <h2>Settings</h2>
+      <div class="settings-row">
+        <label for="settings-volume">Volume</label>
+        <input type="range" id="settings-volume" data-settings-volume min="0" max="100" step="1" />
+      </div>
+      <div class="settings-row settings-checkbox-row">
+        <label><input type="checkbox" data-settings-muted /> Mute</label>
+      </div>
+      <div class="settings-row">
+        <label for="settings-sensitivity">Mouse sensitivity</label>
+        <input type="range" id="settings-sensitivity" data-settings-sensitivity min="25" max="300" step="5" />
+      </div>
+      <div class="settings-row settings-checkbox-row">
+        <label><input type="checkbox" data-settings-colorblind /> Colorblind-safe enemy color</label>
+      </div>
+      <p class="settings-hint">Colorblind mode takes effect next match, not mid-match.</p>
+      <div class="settings-row settings-keybind-row">
+        <span>Thrust key</span>
+        <button type="button" class="secondary" data-rebind-key="thrustKey" data-key-label>W</button>
+      </div>
+      <div class="settings-row settings-keybind-row">
+        <span>Camera toggle key</span>
+        <button type="button" class="secondary" data-rebind-key="cameraToggleKey" data-key-label>C</button>
+      </div>
+      <div class="settings-actions">
+        <button type="button" class="secondary" data-settings-reset>Reset to Defaults</button>
+        <button type="button" class="secondary" data-settings-back>Back</button>
+      </div>
+    </section>
+
+    <section id="view-lobby" class="view panel" hidden>
+      <h2>Room <strong data-room-code></strong></h2>
+      <div class="ranked-badge" data-ranked-badge hidden>⚔ RANKED</div>
+      <ul class="player-list" data-player-list></ul>
+      <button type="button" class="primary" data-ready-btn>Ready</button>
+      <p class="status-text" data-lobby-status></p>
+      <p class="lobby-hint">Starts once everyone here is ready — 2 to 4 players.</p>
+      <p class="status-text" data-p2p-status></p>
+      <div class="countdown-number" data-countdown hidden></div>
+      <div class="lobby-actions">
+        <button type="button" class="secondary" data-copy-invite>Copy Invite Link</button>
+        <div class="add-bot-row">
+          <select data-bot-difficulty aria-label="Bot difficulty">
+            <option value="easy">Easy</option>
+            <option value="medium" selected>Medium</option>
+            <option value="hard">Hard</option>
+          </select>
+          <button type="button" class="secondary" data-add-bot>Add Bot</button>
+        </div>
+        <button type="button" class="secondary" data-open-hangar>Hangar</button>
+      </div>
+    </section>
+
+    <section id="view-spectate-wait" class="view panel" hidden>
+      <h2>Spectating <strong data-spectate-room-code></strong></h2>
+      <p class="status-text" data-spectate-status>Waiting for the match to start…</p>
+      <button type="button" class="secondary" data-spectate-leave>Leave</button>
+    </section>
+
+    <section id="view-hangar" class="view panel hangar-panel" hidden>
+      <h2>Hangar</h2>
+      <p class="hangar-hint">Ships and weapons are lateral choices, not power -- pick a playstyle. Progress is saved in this browser.</p>
+      <div class="hangar-section">
+        <h3>Daily Challenges</h3>
+        <p class="hangar-hint">Same 3 for everyone, reset at 00:00 UTC. Credits pay out automatically the instant you complete one.</p>
+        <div class="challenge-list" data-challenge-list></div>
+      </div>
+      <div class="hangar-section">
+        <h3>Ships</h3>
+        <div class="loadout-grid" data-ship-grid></div>
+      </div>
+      <div class="hangar-section">
+        <h3>Weapons</h3>
+        <div class="loadout-grid" data-weapon-grid></div>
+      </div>
+      <div class="hangar-section">
+        <h3>Cosmetics</h3>
+        <p class="hangar-hint">Engine trail color only -- purely cosmetic, no combat effect. Hull color always stays friend/foe blue-vs-red.</p>
+        <div class="loadout-grid" data-cosmetic-grid></div>
+      </div>
+      <div class="hangar-section">
+        <h3>Upgrades</h3>
+        <p class="hangar-hint upgrade-hint">Real, permanent power -- a slow grind on top of the free ship/weapon choices above.</p>
+        <div class="upgrade-list" data-upgrade-list></div>
+      </div>
+      <div class="hangar-section">
+        <h3>Achievements</h3>
+        <p class="hangar-hint">Permanent -- unlike daily challenges, these never reset.</p>
+        <div class="achievement-list" data-achievement-list></div>
+      </div>
+      <div class="hangar-section">
+        <h3>Match History</h3>
+        <p class="hangar-hint">Your last 10 matches, casual and ranked alike.</p>
+        <ol class="match-history-list" data-match-history-list></ol>
+      </div>
+      <p class="error-text" data-hangar-error></p>
+      <button type="button" class="secondary" data-hangar-back>Back</button>
+    </section>
+
+    <section id="view-leaderboard" class="view panel leaderboard-panel" hidden>
+      <h2>Leaderboard</h2>
+      <div class="leaderboard-tabs">
+        <button type="button" class="leaderboard-tab active" data-leaderboard-tab="casual">Casual</button>
+        <button type="button" class="leaderboard-tab" data-leaderboard-tab="ranked">Ranked</button>
+      </div>
+      <div class="callsign-row">
+        <input type="text" maxlength="16" placeholder="Your callsign" data-callsign-input autocomplete="off" />
+        <button type="button" class="secondary" data-save-callsign>Save</button>
+      </div>
+      <p class="hangar-hint">Pilots you've played with in this browser.</p>
+      <p class="error-text" data-leaderboard-error></p>
+      <p class="leaderboard-self" data-leaderboard-self></p>
+      <ol class="leaderboard-list" data-leaderboard-list></ol>
+      <button type="button" class="secondary" data-leaderboard-back>Back</button>
+    </section>
+
+    <section id="view-play" class="view" hidden>
+      <canvas id="scene"></canvas>
+      <div class="damage-flash" data-damage-flash></div>
+      <div class="killstreak-banner" data-killstreak-banner></div>
+      <div id="hud" data-connection="disconnected" data-self-id=""
+           data-self-invulnerable="false" data-match-status="" data-winner="" data-room-code-hud="">
+        <div class="hud-top">
+          <div class="score-panel" data-score-panel></div>
+          <div class="shield-badge" data-shield-badge hidden>⛊ SHIELDED</div>
+          <div class="boost-badge" data-boost-badge hidden>⚡ BOOSTED</div>
+          <div class="spectate-badge" data-spectate-badge hidden>👁 SPECTATING</div>
+          <div class="killcam-badge" data-killcam-badge hidden>🎥 KILLCAM</div>
+        </div>
+        <div class="minimap-wrap" data-minimap-wrap>
+          <canvas id="minimap-canvas" width="140" height="140"></canvas>
+        </div>
+        <div class="latency-badge" data-latency-badge>-- ms</div>
+        <div class="kill-feed" data-kill-feed></div>
+        <div class="ping-bar" data-ping-bar>
+          <button type="button" data-ping="watch_out">1 · Watch out!</button>
+          <button type="button" data-ping="nice_shot">2 · Nice shot!</button>
+          <button type="button" data-ping="incoming">3 · Incoming!</button>
+          <button type="button" data-ping="thanks">4 · Thanks!</button>
+        </div>
+        <div class="hud-bottom">
+          <div class="heat-gauge" data-heat-gauge>
+            <span class="heat-gauge-label" data-heat-label>ENGINE</span>
+            <div class="heat-gauge-track"><div class="heat-gauge-fill" data-heat-fill></div></div>
+          </div>
+          <div class="controls-hint desktop-hint">Mouse to aim · W to thrust · Click to fire · C to toggle camera</div>
+          <div class="controls-hint spectate-hint" data-spectate-hint hidden>Tab, or the button below, switches who you're watching</div>
+          <button type="button" class="spectate-next-btn" data-spectate-next hidden>Next Ship ▶</button>
+        </div>
+        <div class="crosshair" data-crosshair></div>
+        <div class="touch-controls" data-touch-controls>
+          <button type="button" class="touch-btn touch-thrust" data-touch-thrust aria-label="Thrust">THRUST</button>
+          <button type="button" class="touch-btn touch-fire" data-touch-fire aria-label="Fire">FIRE</button>
+          <button type="button" class="touch-btn touch-cam" data-touch-cam aria-label="Toggle camera">CAM</button>
+        </div>
+        <div class="match-over-banner" data-match-over-banner hidden>
+          <p class="match-over-title" data-match-over-text></p>
+          <p class="match-over-score" data-match-over-score></p>
+          <p class="match-over-accuracy" data-match-over-accuracy></p>
+          <div class="match-over-actions">
+            <button type="button" class="primary" data-rematch>Rematch</button>
+            <button type="button" class="secondary" data-play-again>Leave</button>
+          </div>
+          <p class="match-over-hint">Rematch keeps this room and everyone in it — Leave goes back to the home screen.</p>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- PeerJS: browser-to-browser connections so players can host matches for each other (see src/p2p.js) -->
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script type="module" src="src/main.js"></script>
+</body>
+</html>
